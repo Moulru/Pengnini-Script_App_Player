@@ -9,7 +9,7 @@ The Handy 디바이스와 동기화되는 funscript 재생을 지원하는 **And
 최신 APK는 **[Releases 페이지](https://github.com/Moulru/Pengnini-Script_App_Player/releases/latest)** 에서 받을 수 있습니다.
 
 **설치 방법**
-1. 위 링크에서 `Pengnini-x.x.x-debug.apk` 다운로드
+1. 위 링크에서 `Pengnini-1.0.0v.apk` 다운로드
 2. Android 설정 → 보안 → **"출처를 알 수 없는 앱" 설치 허용**
 3. 다운로드한 APK 실행 → 설치
 
