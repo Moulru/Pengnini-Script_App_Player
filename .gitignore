@@ -1,0 +1,41 @@
+# ─────────────── Android / Gradle ───────────────
+*.iml
+.gradle/
+.kotlin/
+/local.properties
+.idea/
+.DS_Store
+/captures
+.externalNativeBuild
+.cxx
+
+# Gradle build output
+**/build/
+build/
+
+# ─────────────── Logs ───────────────
+*.log
+build-*.log
+
+# ─────────────── Source design assets (개발 참고용, 배포 불필요) ───────────────
+screen-*.png
+v2-*.png
+v3-*.png
+transition-demo.mp4
+appicon.png
+
+# ─────────────── Build artifacts ───────────────
+*.apk
+*.aab
+
+# ─────────────── 개발 문서 (외부 배포 불필요) ───────────────
+CLAUDE.md
+CLAUDE_CONTEXT.md
+docs/
+ONBOARDING.md
+
+# ─────────────── OS / Editor ───────────────
+Thumbs.db
+*.bak
+*.tmp
+*.swp

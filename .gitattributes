@@ -1,0 +1,22 @@
+# Unix shell scripts must keep LF line endings
+gradlew text eol=lf
+*.sh text eol=lf
+
+# Source files
+*.kt text
+*.kts text
+*.java text
+*.xml text
+*.md text
+*.toml text
+*.properties text
+*.pro text
+
+# Binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.jar binary
+*.apk binary
+*.aab binary
