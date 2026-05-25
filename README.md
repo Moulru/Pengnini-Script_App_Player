@@ -1,4 +1,5 @@
 # Pengnini · Script App Player
+<img width="1021" height="456" alt="image" src="https://github.com/user-attachments/assets/7641cd28-c63b-4295-b824-c5f21e26cd66" />
 
 An Android-only video player and library app with funscript playback support.
 
