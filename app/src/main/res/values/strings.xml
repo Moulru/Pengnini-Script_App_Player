@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">펭니니</string>
+
+    <!-- Library -->
+    <string name="nav_library">라이브러리</string>
+    <string name="library_empty_title">아직 라이브러리가 비어있어요</string>
+    <string name="library_empty_subtitle">동영상이 들어있는 폴더를 추가해보세요</string>
+    <string name="library_add_folder">폴더 추가하기</string>
+    <string name="library_view_grid">갤러리 보기</string>
+    <string name="library_view_list">리스트 보기</string>
+    <string name="library_search">검색</string>
+    <string name="library_search_hint">제목 검색…</string>
+    <string name="library_sort">정렬</string>
+    <string name="library_filter">필터</string>
+    <string name="library_rescan">다시 스캔</string>
+    <string name="library_no_videos_in_folder">등록된 폴더에 영상이 없습니다</string>
+    <string name="library_pull_to_refresh">아래로 당겨서 새로고침</string>
+
+    <!-- Folder dialog -->
+    <string name="folder_dialog_title">라이브러리 폴더</string>
+    <string name="folder_dialog_empty">등록된 폴더 없음</string>
+    <string name="folder_dialog_add">폴더 추가</string>
+    <string name="folder_dialog_remove">제거</string>
+    <string name="folder_dialog_close">닫기</string>
+
+    <!-- Sort -->
+    <string name="sort_added_desc">추가일 (최신순)</string>
+    <string name="sort_added_asc">추가일 (오래된순)</string>
+    <string name="sort_title_asc">제목 (가나다순)</string>
+    <string name="sort_title_desc">제목 (역순)</string>
+    <string name="sort_duration_desc">길이 (긴 순)</string>
+    <string name="sort_duration_asc">길이 (짧은 순)</string>
+    <string name="sort_rating_desc">평점 (높은 순)</string>
+    <string name="sort_resolution_desc">해상도 (높은 순)</string>
+    <string name="sort_size_desc">파일 크기 (큰 순)</string>
+    <string name="sort_has_script">스크립트 영상 우선</string>
+
+    <!-- Snackbar -->
+    <string name="snackbar_folder_added">폴더 추가됨 · 스캔 시작…</string>
+    <string name="snackbar_scan_done">스캔 완료</string>
+
+    <!-- Filter -->
+    <string name="filter_title">필터</string>
+    <string name="filter_only_with_script">스크립트 있는 영상만</string>
+    <string name="filter_only_favorite">즐겨찾기만</string>
+    <string name="filter_min_rating">최소 평점: %1$d★</string>
+    <string name="filter_folders">폴더</string>
+    <string name="filter_tags">태그</string>
+    <string name="filter_reset">초기화</string>
+
+    <!-- Action -->
+    <string name="action_rating">평점</string>
+    <string name="action_favorite">즐겨찾기 추가</string>
+    <string name="action_unfavorite">즐겨찾기 해제</string>
+    <string name="action_edit_tags">태그 편집</string>
+    <string name="action_save">저장</string>
+    <string name="action_cancel">취소</string>
+    <string name="action_clear">삭제</string>
+    <string name="action_apply">적용</string>
+
+    <!-- Tag dialog -->
+    <string name="tag_dialog_hint">태그를 쉼표(,)로 구분해서 입력하거나 아래 기존 태그를 누르세요</string>
+    <string name="tag_dialog_label">태그</string>
+    <string name="tag_dialog_existing">기존 태그</string>
+
+    <!-- Settings - top -->
+    <string name="nav_settings">설정</string>
+    <string name="settings_back">뒤로</string>
+
+    <!-- Settings categories -->
+    <string name="settings_category_handy">Handy Connect</string>
+    <string name="settings_category_script">스크립트</string>
+    <string name="settings_category_playback">재생</string>
+    <string name="settings_category_gesture">제스처</string>
+    <string name="settings_category_subtitle">자막</string>
+    <string name="settings_category_security">보안</string>
+    <string name="settings_category_system">시스템</string>
+    <!-- Legacy (kept for compat with older code paths) -->
+    <string name="settings_category_video">비디오</string>
+    <string name="settings_category_appearance">외관·언어</string>
+    <string name="settings_category_data">데이터</string>
+    <string name="settings_category_about">정보</string>
+
+    <!-- Handy Connect -->
+    <string name="settings_handy_key">Connection Key</string>
+    <string name="settings_handy_key_unset">등록되지 않음</string>
+    <string name="settings_handy_key_hint">handyfeeling.com 온보딩에서 발급받은 키</string>
+    <string name="settings_register">등록</string>
+    <string name="settings_edit">수정</string>
+    <string name="settings_handy_check">연결 테스트</string>
+    <string name="settings_handy_test">테스트</string>
+    <string name="settings_handy_checking">확인 중…</string>
+    <string name="settings_handy_check_hint">테스트 버튼으로 디바이스 상태 확인</string>
+    <string name="settings_sync_offset">기본 오프셋</string>
+    <string name="settings_sync_offset_value">0 ms</string>
+    <string name="settings_sync_stroke">기본 스트로크 범위</string>
+    <string name="settings_sync_stroke_value">0 – 100</string>
+    <string name="settings_sync_samples">서버 시간 샘플 수</string>
+    <string name="settings_sync_samples_value">10</string>
+
+    <!-- Script -->
+    <string name="settings_script_auto_match">자동 매칭</string>
+    <string name="settings_script_auto_match_desc">영상과 같은 이름의 .funscript 파일을 자동으로 로드</string>
+    <string name="settings_script_multi_ext">확장자 다중 지원</string>
+    <string name="settings_script_multi_ext_desc">.funscript 외에 .json·.csv 파일도 스크립트로 인식</string>
+    <string name="settings_script_alternate">변형 스크립트 우선</string>
+    <string name="settings_script_alternate_desc">같은 이름의 .alt·.cs.funscript가 있으면 우선 사용</string>
+    <string name="settings_script_invert">기본 반전</string>
+    <string name="settings_script_invert_desc">스크립트의 stroke 방향을 반대로 적용 (pos = 99 - pos)</string>
+    <string name="settings_script_range">기본 강도</string>
+
+    <!-- Playback -->
+    <string name="settings_playback_speed">기본 재생 속도</string>
+    <string name="settings_playback_aspect">기본 화면비</string>
+    <string name="settings_playback_aspect_fit">맞춤 (Fit)</string>
+    <string name="settings_playback_background">백그라운드 재생</string>
+    <string name="settings_playback_background_desc">앱이 백그라운드로 가도 계속 재생</string>
+    <string name="settings_playback_keep_screen_on">화면 자동 꺼짐 방지</string>
+    <string name="settings_playback_keep_screen_on_desc">재생 중 화면을 깬 상태로 유지</string>
+    <string name="settings_playback_loop">영상 무한 루프</string>
+    <string name="settings_playback_loop_desc">영상이 끝나면 처음부터 다시 재생 · 스크립트·자막도 함께 재시작</string>
+
+    <!-- Gesture -->
+    <string name="settings_gesture_seek_swipe">좌우 스와이프 탐색</string>
+    <string name="settings_gesture_seek_swipe_value">10초</string>
+    <string name="settings_gesture_seek_doubletap">더블탭 탐색</string>
+    <string name="settings_gesture_seek_doubletap_value">10초</string>
+    <string name="settings_gesture_brightness">좌측 세로 스와이프 = 밝기</string>
+    <string name="settings_gesture_volume">우측 세로 스와이프 = 볼륨</string>
+    <string name="settings_gesture_zoom">핀치 줌</string>
+
+    <!-- Subtitle -->
+    <string name="settings_subtitle_auto">자막 자동 매칭</string>
+    <string name="settings_subtitle_auto_desc">.srt · .ass 사이드카 자동 로드</string>
+    <string name="settings_subtitle_size">자막 크기</string>
+    <string name="settings_subtitle_size_value">100%</string>
+    <string name="settings_subtitle_delay">자막 지연</string>
+    <string name="settings_subtitle_delay_value">0 ms</string>
+
+    <!-- Video -->
+    <string name="settings_video_hw_accel">하드웨어 가속</string>
+    <string name="settings_video_hw_accel_desc">디바이스 하드웨어 디코더 우선 사용</string>
+
+    <!-- Appearance -->
+    <string name="settings_language">언어</string>
+    <string name="settings_language_value">한국어 (시스템 따라가기)</string>
+
+    <!-- Data -->
+    <string name="settings_data_clear_library">라이브러리 초기화</string>
+    <string name="settings_data_clear_cache">썸네일 캐시 삭제</string>
+    <string name="settings_data_rescan">전체 폴더 다시 스캔</string>
+
+    <!-- About -->
+    <string name="settings_version_value">버전 0.2.0 · MVP-2</string>
+</resources>
