@@ -62,3 +62,12 @@ An Android-only video player and library app with funscript playback support.
 - Video and script files stay entirely on-device
 - When uploading a funscript, it is temporarily hosted on HandyFeeling servers (for device download)
 - **Viewing history, statistics, and analytics are never stored or transmitted**
+
+## 🙏 Acknowledgments
+
+This app is built on top of these open-source libraries (all under Apache 2.0):
+
+- AndroidX — Jetpack Compose, Media3 (ExoPlayer), Room, Lifecycle, Navigation, DataStore, Security Crypto
+- Square — Retrofit, OkHttp
+- Coil-kt — Coil
+- JetBrains — Kotlin, Kotlinx Coroutines, Kotlinx Serialization
