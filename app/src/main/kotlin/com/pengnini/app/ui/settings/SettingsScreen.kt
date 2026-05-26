@@ -385,6 +385,7 @@ private fun PlaybackContent() {
     val background by prefs.backgroundPlayback.collectAsStateWithLifecycle(initialValue = false)
     val keepScreenOn by prefs.keepScreenOn.collectAsStateWithLifecycle(initialValue = true)
     val loop by prefs.loopEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val alwaysFromStart by prefs.alwaysStartFromBeginning.collectAsStateWithLifecycle(initialValue = false)
 
     var speedDialogOpen by remember { mutableStateOf(false) }
     var aspectDialogOpen by remember { mutableStateOf(false) }
@@ -416,6 +417,13 @@ private fun PlaybackContent() {
                 subtitle = "재생 중 화면을 깬 상태로 유지",
                 checked = keepScreenOn,
                 onCheckedChange = { scope.launch { prefs.setKeepScreenOn(it) } },
+            )
+            BoundSwitchRow(
+                icon = Icons.Outlined.PlayCircle,
+                title = "항상 처음부터 재생",
+                subtitle = "이어보기를 끄고 영상을 열 때마다 처음부터 시작",
+                checked = alwaysFromStart,
+                onCheckedChange = { scope.launch { prefs.setAlwaysStartFromBeginning(it) } },
             )
             BoundSwitchRow(
                 icon = Icons.Outlined.Loop,
@@ -757,7 +765,7 @@ private fun SystemContent() {
             )
             ListItem(
                 headlineContent = { Text("앱 버전") },
-                supportingContent = { Text("Pengnini / 1.0.0") },
+                supportingContent = { Text("Pengnini / 1.0.1") },
                 leadingContent = { Icon(Icons.Outlined.Info, null) },
             )
         }

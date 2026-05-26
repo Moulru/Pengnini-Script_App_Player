@@ -49,7 +49,22 @@ class LibraryRepository(
     suspend fun scanFolder(uriStr: String, matchScripts: Boolean = true) {
         val uri = Uri.parse(uriStr)
         val items = scanner.scan(uri, matchScripts)
-        if (items.isNotEmpty()) videoDao.upsertAll(items)
+        if (items.isEmpty()) return
+        // 재스캔 시 사용자 데이터(rating·favorite·tags·lastPositionMs·addedAt) 보존.
+        // OnConflictStrategy.REPLACE가 전체 row를 덮어쓰므로 기존 값을 명시적으로 유지한다.
+        val existing = videoDao.getByFolder(uriStr).associateBy { it.uri }
+        val merged = items.map { fresh ->
+            existing[fresh.uri]?.let { e ->
+                fresh.copy(
+                    rating = e.rating,
+                    favorite = e.favorite,
+                    tags = e.tags,
+                    lastPositionMs = e.lastPositionMs,
+                    addedAt = e.addedAt,
+                )
+            } ?: fresh
+        }
+        videoDao.upsertAll(merged)
     }
 
     suspend fun rescanAll(matchScripts: Boolean = true) {
