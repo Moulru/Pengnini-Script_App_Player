@@ -13,9 +13,19 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 sealed class HandySyncState {
     data object Idle : HandySyncState()
@@ -69,6 +79,8 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
     val strokeMax: StateFlow<Int> = prefs.strokeMax
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 100)
+    val scriptInvert: StateFlow<Boolean> = prefs.scriptInvert
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     private val _syncState = MutableStateFlow<HandySyncState>(HandySyncState.Idle)
     val syncState: StateFlow<HandySyncState> = _syncState
@@ -78,7 +90,11 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
 
     init {
         viewModelScope.launch {
-            _video.value = repo.getVideo(videoUri)
+            // alwaysStartFromBeginning ON이면 lastPositionMs를 0으로 덮어 ExoPlayer 초기 seekTo가 일어나지 않게 함.
+            // DB의 실제 값은 손대지 않음(다음 정지 시 다시 갱신됨).
+            val v = repo.getVideo(videoUri)
+            val fromStart = prefs.alwaysStartFromBeginning.first()
+            _video.value = if (v != null && fromStart) v.copy(lastPositionMs = 0L) else v
             val list = runCatching { repo.getAllVideoUrisOrdered() }.getOrDefault(emptyList())
             val idx = list.indexOf(videoUri)
             if (idx >= 0) {
@@ -94,6 +110,12 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
                 }
             }
         }
+        // 반전 설정 변경 시 funscript 재업로드.
+        // prefs.scriptInvert를 직접 구독 — 첫 emit(저장된 현재 값)은 drop(1)으로 무시하고
+        // 이후 사용자 토글에 의한 변경만 resync. (StateFlow는 stateIn 초기값 emit이 섞여 race 발생)
+        viewModelScope.launch {
+            prefs.scriptInvert.drop(1).collect { resync() }
+        }
     }
 
     fun startSync() {
@@ -102,9 +124,11 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
         val scriptUri = v.funscriptUri ?: return
         if (!handyRepo.hasKey) return
         viewModelScope.launch {
+            // StateFlow는 초기값(false)으로 시작하므로 prefs에서 직접 await
+            val invert = prefs.scriptInvert.first()
             _syncState.value = HandySyncState.Uploading
             try {
-                val bytes = withContext(Dispatchers.IO) {
+                val rawBytes = withContext(Dispatchers.IO) {
                     runCatching {
                         getApplication<Application>().contentResolver
                             .openInputStream(Uri.parse(scriptUri))?.use { it.readBytes() }
@@ -113,6 +137,7 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
                     _syncState.value = HandySyncState.Error("스크립트 읽기 실패")
                     return@launch
                 }
+                val bytes = if (invert) invertFunscript(rawBytes) else rawBytes
                 val url = handyRepo.uploadScript(v.title, bytes).getOrElse {
                     _syncState.value = HandySyncState.Error("업로드 실패: ${it.message ?: "알 수 없음"}")
                     return@launch
@@ -129,6 +154,40 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
                 _syncState.value = HandySyncState.Error(e.message ?: "오류")
             }
         }
+    }
+
+    /** 반전 설정 변경 시 호출. stop → reset → startSync 흐름으로 funscript 재업로드.
+     *  PlayerScreen의 LaunchedEffect(syncState)가 Ready 감지 시 현재 위치에서 onPlay를 다시 트리거한다. */
+    private fun resync() {
+        val v = _video.value ?: return
+        if (v.funscriptUri == null) return
+        if (!handyRepo.hasKey) return
+        viewModelScope.launch {
+            runCatching { handyRepo.stop() }
+            syncInitialized = false
+            _syncState.value = HandySyncState.Idle
+            startSync()
+        }
+    }
+
+    /** funscript JSON의 actions[].pos 값을 (99 - pos)로 변환. 파싱 실패 시 원본 반환. */
+    private fun invertFunscript(bytes: ByteArray): ByteArray = try {
+        val root = Json.parseToJsonElement(String(bytes)).jsonObject
+        val actions = root["actions"]?.jsonArray
+        if (actions == null) bytes
+        else {
+            val flipped = actions.map { el ->
+                val obj = el.jsonObject.toMutableMap()
+                val pos = obj["pos"]?.jsonPrimitive?.intOrNull
+                if (pos != null) obj["pos"] = JsonPrimitive(99 - pos)
+                JsonObject(obj)
+            }
+            val out = root.toMutableMap()
+            out["actions"] = JsonArray(flipped)
+            JsonObject(out).toString().toByteArray()
+        }
+    } catch (_: Exception) {
+        bytes
     }
 
     fun onPlay(positionMs: Long) {

@@ -14,6 +14,9 @@ interface VideoDao {
     @Query("SELECT * FROM videos WHERE uri = :uri")
     suspend fun get(uri: String): VideoEntity?
 
+    @Query("SELECT * FROM videos WHERE folderUri = :folderUri")
+    suspend fun getByFolder(folderUri: String): List<VideoEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(videos: List<VideoEntity>)
 

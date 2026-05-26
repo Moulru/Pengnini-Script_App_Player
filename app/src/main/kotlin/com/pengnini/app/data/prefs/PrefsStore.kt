@@ -28,6 +28,7 @@ class PrefsStore(context: Context) {
     val backgroundPlayback: Flow<Boolean> = ds.data.map { it[KEY_BACKGROUND] ?: false }
     val playbackSpeedX10: Flow<Int> = ds.data.map { it[KEY_PLAYBACK_SPEED_X10] ?: 10 }
     val playbackAspect: Flow<String> = ds.data.map { it[KEY_PLAYBACK_ASPECT] ?: "fit" }
+    val alwaysStartFromBeginning: Flow<Boolean> = ds.data.map { it[KEY_ALWAYS_FROM_START] ?: false }
 
     // System
     val hwAccel: Flow<Boolean> = ds.data.map { it[KEY_HW_ACCEL] ?: true }
@@ -68,6 +69,7 @@ class PrefsStore(context: Context) {
     suspend fun setBackground(v: Boolean) { ds.edit { it[KEY_BACKGROUND] = v } }
     suspend fun setPlaybackSpeedX10(v: Int) { ds.edit { it[KEY_PLAYBACK_SPEED_X10] = v.coerceIn(5, 20) } }
     suspend fun setPlaybackAspect(v: String) { ds.edit { it[KEY_PLAYBACK_ASPECT] = v } }
+    suspend fun setAlwaysStartFromBeginning(v: Boolean) { ds.edit { it[KEY_ALWAYS_FROM_START] = v } }
 
     suspend fun setHwAccel(v: Boolean) { ds.edit { it[KEY_HW_ACCEL] = v } }
     suspend fun setLanguage(v: String) { ds.edit { it[KEY_LANGUAGE] = v } }
@@ -104,6 +106,7 @@ class PrefsStore(context: Context) {
         val KEY_BACKGROUND = booleanPreferencesKey("background_playback")
         val KEY_PLAYBACK_SPEED_X10 = intPreferencesKey("playback_speed_x10")
         val KEY_PLAYBACK_ASPECT = stringPreferencesKey("playback_aspect")
+        val KEY_ALWAYS_FROM_START = booleanPreferencesKey("always_start_from_beginning")
         val KEY_HW_ACCEL = booleanPreferencesKey("hw_accel")
         val KEY_LANGUAGE = stringPreferencesKey("language")
         val KEY_SUBTITLE_AUTO = booleanPreferencesKey("subtitle_auto")
