@@ -8,6 +8,7 @@ import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.decode.VideoFrameDecoder
 import com.pengnini.app.data.db.MIGRATION_1_2
+import com.pengnini.app.data.db.MIGRATION_2_3
 import com.pengnini.app.data.db.PengniniDatabase
 import com.pengnini.app.data.handy.HandyRepository
 import com.pengnini.app.data.library.LibraryRepository
@@ -61,7 +62,7 @@ object Container {
         if (initialized) return
         initialized = true
         db = Room.databaseBuilder(app, PengniniDatabase::class.java, "pengnini.db")
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .fallbackToDestructiveMigration()
             .build()
         keyStore = HandyKeyStore(app)
@@ -70,6 +71,7 @@ object Container {
         libraryRepo = LibraryRepository(
             folderDao = db.folderDao(),
             videoDao = db.videoDao(),
+            userDataDao = db.userDataDao(),
             scanner = MediaScanner(app),
             context = app,
         )

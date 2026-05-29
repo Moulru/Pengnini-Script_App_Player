@@ -107,8 +107,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun addFolder(uri: Uri) {
         viewModelScope.launch {
             val autoMatch = prefs.scriptAutoMatch.first()
+            val multiExt = prefs.scriptMultiExt.first()
             isScanning.value = true
-            try { repo.addFolder(uri, autoMatch) } finally { isScanning.value = false }
+            try { repo.addFolder(uri, autoMatch, multiExt) } finally { isScanning.value = false }
         }
     }
 
@@ -119,8 +120,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
     fun rescanAll() {
         viewModelScope.launch {
             val autoMatch = prefs.scriptAutoMatch.first()
+            val multiExt = prefs.scriptMultiExt.first()
             isScanning.value = true
-            try { repo.rescanAll(autoMatch) } finally { isScanning.value = false }
+            try { repo.rescanAll(autoMatch, multiExt) } finally { isScanning.value = false }
         }
     }
 

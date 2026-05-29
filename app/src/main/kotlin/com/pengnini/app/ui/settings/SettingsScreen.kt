@@ -349,7 +349,7 @@ private fun ScriptContent() {
             BoundSwitchRow(
                 icon = Icons.Outlined.Bolt,
                 title = "확장자 다중 지원",
-                subtitle = ".funscript 외 .json·.csv 도 스크립트로 인식",
+                subtitle = ".funscript 외 .json 도 스크립트로 인식",
                 checked = multiExt,
                 onCheckedChange = { scope.launch { prefs.setScriptMultiExt(it) } },
             )
@@ -765,7 +765,7 @@ private fun SystemContent() {
             )
             ListItem(
                 headlineContent = { Text("앱 버전") },
-                supportingContent = { Text("Pengnini / 1.0.1") },
+                supportingContent = { Text("Pengnini / 1.0.2") },
                 leadingContent = { Icon(Icons.Outlined.Info, null) },
             )
         }

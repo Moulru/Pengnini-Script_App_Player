@@ -103,7 +103,7 @@
     <string name="settings_script_auto_match">자동 매칭</string>
     <string name="settings_script_auto_match_desc">영상과 같은 이름의 .funscript 파일을 자동으로 로드</string>
     <string name="settings_script_multi_ext">확장자 다중 지원</string>
-    <string name="settings_script_multi_ext_desc">.funscript 외에 .json·.csv 파일도 스크립트로 인식</string>
+    <string name="settings_script_multi_ext_desc">.funscript 외에 .json 파일도 스크립트로 인식</string>
     <string name="settings_script_alternate">변형 스크립트 우선</string>
     <string name="settings_script_alternate_desc">같은 이름의 .alt·.cs.funscript가 있으면 우선 사용</string>
     <string name="settings_script_invert">기본 반전</string>
