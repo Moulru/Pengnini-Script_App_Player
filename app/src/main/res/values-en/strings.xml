@@ -100,7 +100,7 @@
     <string name="settings_script_auto_match">Auto-match</string>
     <string name="settings_script_auto_match_desc">Load sidecar .funscript with the same basename</string>
     <string name="settings_script_multi_ext">Multiple extensions</string>
-    <string name="settings_script_multi_ext_desc">Recognize .json·.csv files as scripts in addition to .funscript</string>
+    <string name="settings_script_multi_ext_desc">Recognize .json files as scripts in addition to .funscript</string>
     <string name="settings_script_alternate">Prefer alternate variants</string>
     <string name="settings_script_alternate_desc">Use .alt·.cs.funscript when present for the same video</string>
     <string name="settings_script_invert">Invert by default</string>

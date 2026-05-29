@@ -10,19 +10,27 @@ import kotlinx.coroutines.withContext
 
 class MediaScanner(private val context: Context) {
 
-    suspend fun scan(treeUri: Uri, matchScripts: Boolean = true): List<VideoEntity> = withContext(Dispatchers.IO) {
+    suspend fun scan(
+        treeUri: Uri,
+        matchScripts: Boolean = true,
+        multiExt: Boolean = false,
+    ): List<VideoEntity> = withContext(Dispatchers.IO) {
         val tree = DocumentFile.fromTreeUri(context, treeUri) ?: return@withContext emptyList()
         val videos = mutableListOf<DocumentFile>()
-        val scripts = mutableMapOf<String, Uri>()
+        val scripts = mutableMapOf<String, Uri>()     // .funscript (우선)
+        val altScripts = mutableMapOf<String, Uri>()  // .json (multiExt 시 보조)
         val subs = mutableMapOf<String, Uri>()
 
         walk(tree) { file ->
             val name = file.name ?: return@walk
+            // 사이드카 메타데이터 파일(.pengnini.json / .pengnini.tmp)은 스크립트로 오인 안 되게 제외
+            if (name.startsWith(".pengnini", ignoreCase = true)) return@walk
             val lower = name.lowercase()
             val base = name.substringBeforeLast('.', name).lowercase()
             when {
                 VIDEO_EXTS.any { lower.endsWith(it) } -> videos.add(file)
                 matchScripts && lower.endsWith(".funscript") -> scripts[base] = file.uri
+                matchScripts && multiExt && lower.endsWith(".json") -> altScripts[base] = file.uri
                 SUB_EXTS.any { lower.endsWith(it) } -> subs[base] = file.uri
             }
         }
@@ -41,7 +49,7 @@ class MediaScanner(private val context: Context) {
                 height = meta.height,
                 sizeBytes = v.length(),
                 addedAt = System.currentTimeMillis(),
-                funscriptUri = scripts[base]?.toString(),
+                funscriptUri = (scripts[base] ?: altScripts[base])?.toString(),
                 subtitleUri = subs[base]?.toString(),
                 mimeType = v.type,
             )

@@ -46,6 +46,31 @@ interface VideoDao {
 }
 
 @Dao
+interface VideoUserDataDao {
+    @Query("SELECT * FROM video_user_data WHERE uri = :uri")
+    suspend fun get(uri: String): VideoUserDataEntity?
+
+    @Query("SELECT * FROM video_user_data")
+    suspend fun getAll(): List<VideoUserDataEntity>
+
+    /** 행이 없으면 기본값으로 생성, 있으면 그대로 둔다(부분 UPDATE 전 보장용). */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun ensure(row: VideoUserDataEntity)
+
+    @Query("UPDATE video_user_data SET rating = :rating WHERE uri = :uri")
+    suspend fun updateRating(uri: String, rating: Int)
+
+    @Query("UPDATE video_user_data SET favorite = :favorite WHERE uri = :uri")
+    suspend fun updateFavorite(uri: String, favorite: Boolean)
+
+    @Query("UPDATE video_user_data SET tags = :tags WHERE uri = :uri")
+    suspend fun updateTags(uri: String, tags: String)
+
+    @Query("UPDATE video_user_data SET lastPositionMs = :positionMs WHERE uri = :uri")
+    suspend fun updateLastPosition(uri: String, positionMs: Long)
+}
+
+@Dao
 interface FolderDao {
     @Query("SELECT * FROM folders ORDER BY addedAt ASC")
     fun observeAll(): Flow<List<FolderEntity>>

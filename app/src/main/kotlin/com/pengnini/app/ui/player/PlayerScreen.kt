@@ -11,12 +11,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -51,6 +53,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -194,6 +197,8 @@ fun PlayerScreen(
 
     LaunchedEffect(sessionSpeed) {
         exoPlayer.playbackParameters = PlaybackParameters(sessionSpeed)
+        // 배속을 스크립트에 구워 재업로드 (이미 동기화된 경우에만 resync 발생)
+        vm.setPlaybackSpeed(sessionSpeed)
     }
     LaunchedEffect(loop) {
         exoPlayer.repeatMode = if (loop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
@@ -220,7 +225,7 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(v.uri) {
-        if (v.funscriptUri != null && Container.handyRepo.hasKey) vm.startSync()
+        if (v.funscriptUri != null && Container.handyRepo.hasKey) vm.startSync(sessionSpeed)
     }
 
     LaunchedEffect(syncState) {
@@ -242,18 +247,7 @@ fun PlayerScreen(
         }
     }
 
-    // 재생속도 ≠ 1.0 → Handy도 영상과 동기 유지하도록 주기적으로 startTime 재전송.
-    // (Handy HSSP는 playbackRate API가 없어 자체 1x 속도로 흐르므로 빗나감을 보정)
-    LaunchedEffect(sessionSpeed, syncState) {
-        if (sessionSpeed == 1.0f) return@LaunchedEffect
-        if (syncState !is HandySyncState.Ready) return@LaunchedEffect
-        while (true) {
-            delay(500)
-            if (exoPlayer.isPlaying) {
-                vm.onPlay(exoPlayer.currentPosition)
-            }
-        }
-    }
+    // 배속은 스크립트에 구워 업로드하므로(setPlaybackSpeed→resync) 주기적 재전송이 필요 없음.
 
     LaunchedEffect(exoPlayer) {
         while (true) {
@@ -319,6 +313,9 @@ fun PlayerScreen(
     var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
     var positionMs by remember { mutableStateOf(exoPlayer.currentPosition) }
     var seekingPositionMs by remember { mutableStateOf<Long?>(null) }
+    // A-B 구간반복. null이면 미설정. 영상이 바뀌면 초기화.
+    var loopAMs by remember(v.uri) { mutableStateOf<Long?>(null) }
+    var loopBMs by remember(v.uri) { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(controlsVisible, isPlaying, scriptPopupOpen, speedMenuOpen) {
         if (controlsVisible && isPlaying && !scriptPopupOpen && !speedMenuOpen) {
@@ -330,7 +327,15 @@ fun PlayerScreen(
     LaunchedEffect(exoPlayer) {
         while (true) {
             isPlaying = exoPlayer.isPlaying
-            if (seekingPositionMs == null) positionMs = exoPlayer.currentPosition
+            val a = loopAMs
+            val b = loopBMs
+            val cur = exoPlayer.currentPosition
+            if (a != null && b != null && cur >= b) {
+                exoPlayer.seekTo(a)
+                if (seekingPositionMs == null) positionMs = a
+            } else if (seekingPositionMs == null) {
+                positionMs = cur
+            }
             delay(200)
         }
     }
@@ -462,6 +467,23 @@ fun PlayerScreen(
                 onNext = { nextUri?.let { onPlayOther(it) } },
                 onLoopToggle = {
                     vm.setLoop(!loop)
+                    controlsVisible = true
+                },
+                loopAMs = loopAMs,
+                loopBMs = loopBMs,
+                onAbToggle = {
+                    val a = loopAMs
+                    val b = loopBMs
+                    when {
+                        a == null -> loopAMs = exoPlayer.currentPosition
+                        b == null -> {
+                            val pos = exoPlayer.currentPosition
+                            val lo = minOf(a, pos)
+                            val hi = maxOf(a, pos)
+                            if (hi - lo >= 500) { loopAMs = lo; loopBMs = hi } else loopAMs = pos
+                        }
+                        else -> { loopAMs = null; loopBMs = null }
+                    }
                     controlsVisible = true
                 },
                 onSubtitleToggle = {
@@ -668,6 +690,25 @@ private fun ScriptQuickslotPopup(
     onStrokeRangeChange: (Int, Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    // 드래그 중에는 로컬 상태만 갱신(디바이스 명령 전송 안 함).
+    // 팝업이 사라질 때(바깥 탭·뒤로·아이콘 재탭 등 모든 경로) onDispose에서 변경분만 1회 커밋
+    // → Handy 동기화 폭주 방지.
+    var localOffset by remember { mutableStateOf(offsetMs) }
+    var localRange by remember { mutableStateOf(strokeMin.toFloat()..strokeMax.toFloat()) }
+    val initialOffset = remember { offsetMs }
+    val initialMin = remember { strokeMin }
+    val initialMax = remember { strokeMax }
+    val commitOffset by rememberUpdatedState(onOffsetChange)
+    val commitRange by rememberUpdatedState(onStrokeRangeChange)
+    DisposableEffect(Unit) {
+        onDispose {
+            if (localOffset != initialOffset) commitOffset(localOffset)
+            val lo = localRange.start.toInt()
+            val hi = localRange.endInclusive.toInt()
+            if (lo != initialMin || hi != initialMax) commitRange(lo, hi)
+        }
+    }
+
     Popup(
         alignment = Alignment.TopEnd,
         offset = IntOffset(0, 56),
@@ -692,14 +733,14 @@ private fun ScriptQuickslotPopup(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    "${if (offsetMs > 0) "+" else ""}$offsetMs ms",
+                    "${if (localOffset > 0) "+" else ""}$localOffset ms",
                     color = Color(0xFF9C7CFF),
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                 )
                 Slider(
-                    value = offsetMs.toFloat(),
-                    onValueChange = { onOffsetChange(it.toInt()) },
+                    value = localOffset.toFloat(),
+                    onValueChange = { localOffset = it.toInt() },
                     valueRange = -200f..200f,
                     colors = SliderDefaults.colors(
                         activeTrackColor = Color(0xFF9C7CFF),
@@ -714,14 +755,14 @@ private fun ScriptQuickslotPopup(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    "$strokeMin ~ $strokeMax",
+                    "${localRange.start.toInt()} ~ ${localRange.endInclusive.toInt()}",
                     color = Color(0xFF5EDFC1),
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                 )
                 RangeSlider(
-                    value = strokeMin.toFloat()..strokeMax.toFloat(),
-                    onValueChange = { onStrokeRangeChange(it.start.toInt(), it.endInclusive.toInt()) },
+                    value = localRange,
+                    onValueChange = { localRange = it },
                     valueRange = 0f..100f,
                     colors = SliderDefaults.colors(
                         activeTrackColor = Color(0xFF5EDFC1),
@@ -739,6 +780,9 @@ private fun BottomBar(
     durationMs: Long,
     isPlaying: Boolean,
     loopEnabled: Boolean,
+    loopAMs: Long?,
+    loopBMs: Long?,
+    onAbToggle: () -> Unit,
     hasSubtitle: Boolean,
     subtitleEnabled: Boolean,
     hasPrev: Boolean,
@@ -794,16 +838,31 @@ private fun BottomBar(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         val safeDur = durationMs.coerceAtLeast(1L).toFloat()
-        Slider(
-            value = positionMs.coerceIn(0, durationMs).toFloat(),
-            onValueChange = { onSeekChange(it) },
-            onValueChangeFinished = onSeekEnd,
-            valueRange = 0f..safeDur,
-            colors = SliderDefaults.colors(
-                activeTrackColor = Color(0xFF9C7CFF),
-                thumbColor = Color(0xFF9C7CFF),
-            ),
-        )
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            Slider(
+                value = positionMs.coerceIn(0, durationMs).toFloat(),
+                onValueChange = { onSeekChange(it) },
+                onValueChangeFinished = onSeekEnd,
+                valueRange = 0f..safeDur,
+                colors = SliderDefaults.colors(
+                    activeTrackColor = Color(0xFF9C7CFF),
+                    thumbColor = Color(0xFF9C7CFF),
+                ),
+            )
+            // A·B 구간 마커 (썸 반경 ~10dp 좌우 인셋 보정한 근사 위치)
+            val trackWidth = maxWidth - 20.dp
+            listOfNotNull(loopAMs, loopBMs).forEach { mark ->
+                val frac = (mark.toFloat() / safeDur).coerceIn(0f, 1f)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .offset(x = 10.dp + trackWidth * frac)
+                        .width(2.dp)
+                        .height(16.dp)
+                        .background(Color(0xFFFBC02D)),
+                )
+            }
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(formatDuration(positionMs), color = Color.White, fontSize = 12.sp)
             Spacer(Modifier.width(8.dp))
@@ -872,6 +931,22 @@ private fun BottomBar(
                         else -> Color.White
                     },
                 )
+            }
+            // A-B 구간반복: 1탭=A, 2탭=B(반복 시작), 3탭=해제
+            val abAccent = when {
+                loopAMs != null && loopBMs != null -> Color(0xFF9C7CFF)
+                loopAMs != null -> Color(0xFFFBC02D)
+                else -> Color.White
+            }
+            Box(
+                modifier = Modifier
+                    .height(40.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable(onClick = onAbToggle)
+                    .padding(horizontal = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("A-B", color = abAccent, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
             }
             IconButton(onClick = onLoopToggle) {
                 Icon(

@@ -26,6 +26,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 
 sealed class HandySyncState {
     data object Idle : HandySyncState()
@@ -87,6 +88,7 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
 
     @Volatile private var serverOffset: Long = 0L
     @Volatile private var syncInitialized: Boolean = false
+    @Volatile private var playbackSpeed: Float = 1.0f
 
     init {
         viewModelScope.launch {
@@ -118,11 +120,12 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
         }
     }
 
-    fun startSync() {
+    fun startSync(speed: Float = playbackSpeed) {
         if (syncInitialized) return
         val v = _video.value ?: return
         val scriptUri = v.funscriptUri ?: return
         if (!handyRepo.hasKey) return
+        playbackSpeed = speed
         viewModelScope.launch {
             // StateFlow는 초기값(false)으로 시작하므로 prefs에서 직접 await
             val invert = prefs.scriptInvert.first()
@@ -137,7 +140,7 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
                     _syncState.value = HandySyncState.Error("스크립트 읽기 실패")
                     return@launch
                 }
-                val bytes = if (invert) invertFunscript(rawBytes) else rawBytes
+                val bytes = transformFunscript(rawBytes, invert, speed)
                 val url = handyRepo.uploadScript(v.title, bytes).getOrElse {
                     _syncState.value = HandySyncState.Error("업로드 실패: ${it.message ?: "알 수 없음"}")
                     return@launch
@@ -170,21 +173,42 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
         }
     }
 
-    /** funscript JSON의 actions[].pos 값을 (99 - pos)로 변환. 파싱 실패 시 원본 반환. */
-    private fun invertFunscript(bytes: ByteArray): ByteArray = try {
-        val root = Json.parseToJsonElement(String(bytes)).jsonObject
-        val actions = root["actions"]?.jsonArray
-        if (actions == null) bytes
-        else {
-            val flipped = actions.map { el ->
-                val obj = el.jsonObject.toMutableMap()
-                val pos = obj["pos"]?.jsonPrimitive?.intOrNull
-                if (pos != null) obj["pos"] = JsonPrimitive(99 - pos)
-                JsonObject(obj)
+    /** 재생 속도 변경 시 호출. 배속을 스크립트에 굽기 위해, 이미 업로드된 상태면 재업로드(resync). */
+    fun setPlaybackSpeed(speed: Float) {
+        val s = speed.coerceIn(0.25f, 4f)
+        if (s == playbackSpeed) return
+        playbackSpeed = s
+        if (syncInitialized) resync()
+    }
+
+    /** funscript JSON 변환:
+     *  - invert: pos → (99 - pos)
+     *  - speed≠1: at → (at / speed)로 스케일 → Handy가 1x로 재생해도 영상과 동기 유지(주기 재전송 불필요).
+     *  파싱 실패 시 원본 반환. */
+    private fun transformFunscript(bytes: ByteArray, invert: Boolean, speed: Float): ByteArray = try {
+        if (!invert && speed == 1.0f) {
+            bytes
+        } else {
+            val root = Json.parseToJsonElement(String(bytes)).jsonObject
+            val actions = root["actions"]?.jsonArray
+            if (actions == null) bytes
+            else {
+                val transformed = actions.map { el ->
+                    val obj = el.jsonObject.toMutableMap()
+                    if (invert) {
+                        val pos = obj["pos"]?.jsonPrimitive?.intOrNull
+                        if (pos != null) obj["pos"] = JsonPrimitive(99 - pos)
+                    }
+                    if (speed != 1.0f) {
+                        val at = obj["at"]?.jsonPrimitive?.longOrNull
+                        if (at != null) obj["at"] = JsonPrimitive((at / speed).toLong())
+                    }
+                    JsonObject(obj)
+                }
+                val out = root.toMutableMap()
+                out["actions"] = JsonArray(transformed)
+                JsonObject(out).toString().toByteArray()
             }
-            val out = root.toMutableMap()
-            out["actions"] = JsonArray(flipped)
-            JsonObject(out).toString().toByteArray()
         }
     } catch (_: Exception) {
         bytes
@@ -193,7 +217,8 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
     fun onPlay(positionMs: Long) {
         if (_syncState.value !is HandySyncState.Ready) return
         val offset = syncOffsetMs.value
-        val adjustedPos = (positionMs + offset).coerceAtLeast(0)
+        // 스크립트에 배속을 구웠으므로 디바이스로 보내는 위치도 1/speed로 환산
+        val adjustedPos = ((positionMs + offset).coerceAtLeast(0) / playbackSpeed).toLong()
         viewModelScope.launch {
             handyRepo.play(System.currentTimeMillis() + serverOffset, adjustedPos)
         }
@@ -208,7 +233,7 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
         if (_syncState.value !is HandySyncState.Ready) return
         if (wasPlaying) {
             val offset = syncOffsetMs.value
-            val adjustedPos = (newPositionMs + offset).coerceAtLeast(0)
+            val adjustedPos = ((newPositionMs + offset).coerceAtLeast(0) / playbackSpeed).toLong()
             viewModelScope.launch {
                 handyRepo.play(System.currentTimeMillis() + serverOffset, adjustedPos)
             }
