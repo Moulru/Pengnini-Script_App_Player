@@ -16,8 +16,6 @@ An Android-only video player and library app with funscript playback support.
 
 ---
 
-## 1.0.0 Release
-
 ### Video Player
 - AndroidX Media3 (ExoPlayer) — `mp4` / `mkv` / `webm`
 - Aspect ratio: Fit (default) / Fill / Stretch / 16:9 / 4:3
