@@ -23,7 +23,12 @@ import kotlinx.serialization.json.putJsonObject
  */
 class MetadataStore(private val context: Context) {
 
-    data class Entry(val rating: Int, val favorite: Boolean, val tags: String)
+    data class Entry(
+        val rating: Int,
+        val favorite: Boolean,
+        val tags: String,
+        val customTitle: String? = null,
+    )
 
     fun read(folderUri: String): Map<String, Entry> = runCatching {
         val tree = DocumentFile.fromTreeUri(context, Uri.parse(folderUri)) ?: return emptyMap()
@@ -36,6 +41,7 @@ class MetadataStore(private val context: Context) {
                 rating = o["rating"]?.jsonPrimitive?.intOrNull ?: 0,
                 favorite = o["favorite"]?.jsonPrimitive?.booleanOrNull ?: false,
                 tags = o["tags"]?.jsonPrimitive?.contentOrNull ?: "",
+                customTitle = o["customTitle"]?.jsonPrimitive?.contentOrNull,
             )
         }
     }.getOrDefault(emptyMap())
@@ -49,6 +55,7 @@ class MetadataStore(private val context: Context) {
                         put("rating", e.rating)
                         put("favorite", e.favorite)
                         put("tags", e.tags)
+                        e.customTitle?.let { put("customTitle", it) }
                     }
                 }
             }.toString()

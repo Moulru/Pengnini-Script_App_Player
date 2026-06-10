@@ -58,6 +58,19 @@
     <string name="action_cancel">Cancel</string>
     <string name="action_clear">Remove</string>
     <string name="action_apply">Apply</string>
+    <string name="action_rename">Rename</string>
+    <string name="action_link_script">Link script</string>
+    <string name="action_unlink_script">Unlink script</string>
+    <string name="action_delete">Delete</string>
+    <string name="rename_dialog_title">Rename</string>
+    <string name="rename_dialog_label">Display name</string>
+    <string name="rename_dialog_hint">Only the name shown in the app changes; the actual file is left as-is. Leave empty to restore the original filename.</string>
+    <string name="delete_dialog_title">Delete</string>
+    <string name="delete_dialog_msg">This permanently deletes the video and its linked script file from storage. This cannot be undone.</string>
+    <string name="snackbar_script_linked">Script linked</string>
+    <string name="snackbar_script_unlinked">Script unlinked</string>
+    <string name="snackbar_deleted">Deleted</string>
+    <string name="snackbar_delete_failed">Delete failed · write permission required (re-add the folder)</string>
 
     <!-- Tag dialog -->
     <string name="tag_dialog_hint">Enter tags separated by comma, or tap an existing tag below</string>

@@ -91,6 +91,7 @@ import androidx.media3.ui.PlayerView
 import com.pengnini.app.Container
 import com.pengnini.app.R
 import com.pengnini.app.data.db.VideoEntity
+import com.pengnini.app.data.db.displayTitle
 import com.pengnini.app.ui.common.formatDuration
 import com.pengnini.app.ui.common.formatResolution
 import kotlinx.coroutines.delay
@@ -413,7 +414,7 @@ fun PlayerScreen(
             modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
         ) {
             TopBar(
-                title = v.title,
+                title = v.displayTitle,
                 video = v,
                 syncState = syncState,
                 onRetrySync = { vm.retrySync() },

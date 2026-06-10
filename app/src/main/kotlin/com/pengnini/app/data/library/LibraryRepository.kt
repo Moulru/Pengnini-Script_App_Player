@@ -17,6 +17,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 
 enum class LibraryViewMode { GRID, LIST }
@@ -69,25 +70,40 @@ class LibraryRepository(
         // 사용자 데이터 복원: 우선 DB(user_data, uri 정확 매칭) → 없으면 사이드카(title 매칭, 재설치·이식 대비)
         val userData = userDataDao.getAll().associateBy { it.uri }
         val sidecar = metadataStore.read(uriStr)
+        val existing = videoDao.getByFolder(uriStr).associateBy { it.uri }
         val merged = items.map { fresh ->
-            val ud = userData[fresh.uri]
+            // 새 스캔이 스크립트를 못 찾았는데 기존에 연결돼 있었으면(수동 연결 포함) 유지
+            val base = if (fresh.funscriptUri == null) {
+                existing[fresh.uri]?.funscriptUri?.let { fresh.copy(funscriptUri = it) } ?: fresh
+            } else {
+                fresh
+            }
+            val ud = userData[base.uri]
             if (ud != null) {
-                fresh.copy(
+                base.copy(
                     rating = ud.rating,
                     favorite = ud.favorite,
                     tags = ud.tags,
                     lastPositionMs = ud.lastPositionMs,
+                    customTitle = ud.customTitle,
                 )
             } else {
-                val side = sidecar[fresh.title]
+                val side = sidecar[base.title]
                 if (side != null) {
                     // 사이드카에서 복원하고 DB(user_data)에도 시드
                     userDataDao.ensure(
-                        VideoUserDataEntity(fresh.uri, side.rating, side.favorite, side.tags, 0L),
+                        VideoUserDataEntity(
+                            base.uri, side.rating, side.favorite, side.tags, 0L, side.customTitle,
+                        ),
                     )
-                    fresh.copy(rating = side.rating, favorite = side.favorite, tags = side.tags)
+                    base.copy(
+                        rating = side.rating,
+                        favorite = side.favorite,
+                        tags = side.tags,
+                        customTitle = side.customTitle,
+                    )
                 } else {
-                    fresh
+                    base
                 }
             }
         }
@@ -126,6 +142,42 @@ class LibraryRepository(
         // 위치는 재생 중 5초마다 갱신되어 사이드카 플러시는 생략(DB에만 보존)
     }
 
+    /** 앱 내 표시이름 변경(실제 파일은 그대로). 빈 문자열이면 null로 저장해 원래 파일명 사용. */
+    suspend fun setCustomTitle(uri: String, title: String?) {
+        val v = title?.trim()?.takeIf { it.isNotBlank() }
+        videoDao.setCustomTitle(uri, v)
+        userDataDao.ensure(VideoUserDataEntity(uri))
+        userDataDao.updateCustomTitle(uri, v)
+        scheduleSidecarFlush(uri)
+    }
+
+    /** 스크립트 수동 연결/해제. scriptUri는 SAF로 영구 read 권한을 미리 확보해 둔다. */
+    suspend fun setFunscript(uri: String, scriptUri: String?) {
+        videoDao.setFunscript(uri, scriptUri)
+    }
+
+    /**
+     * 영상 파일과 연결된 스크립트 파일을 저장소에서 삭제 후 DB/메타데이터 정리.
+     * 파일 삭제에 실패하면(권한 없음 등) DB를 건드리지 않고 false 반환 — 재스캔 시 되살아나는 것 방지.
+     */
+    suspend fun deleteVideo(uri: String): Boolean {
+        val video = videoDao.get(uri)
+        val deleted = withContext(Dispatchers.IO) {
+            runCatching {
+                DocumentFile.fromSingleUri(context, Uri.parse(uri))?.delete() ?: false
+            }.getOrDefault(false)
+        }
+        if (!deleted) return false
+        video?.funscriptUri?.let { scriptUri ->
+            withContext(Dispatchers.IO) {
+                runCatching { DocumentFile.fromSingleUri(context, Uri.parse(scriptUri))?.delete() }
+            }
+        }
+        videoDao.delete(uri)
+        userDataDao.delete(uri)
+        return true
+    }
+
     suspend fun getVideo(uri: String): VideoEntity? = videoDao.get(uri)
     suspend fun getAllVideoUrisOrdered(): List<String> = videoDao.getAllUrisOrdered()
 
@@ -153,8 +205,8 @@ class LibraryRepository(
         val entries = HashMap<String, MetadataStore.Entry>()
         vids.forEach { v ->
             val ud = userData[v.uri] ?: return@forEach
-            if (ud.rating != 0 || ud.favorite || ud.tags.isNotBlank()) {
-                entries[v.title] = MetadataStore.Entry(ud.rating, ud.favorite, ud.tags)
+            if (ud.rating != 0 || ud.favorite || ud.tags.isNotBlank() || ud.customTitle != null) {
+                entries[v.title] = MetadataStore.Entry(ud.rating, ud.favorite, ud.tags, ud.customTitle)
             }
         }
         metadataStore.write(folderUri, entries)

@@ -58,6 +58,19 @@
     <string name="action_cancel">취소</string>
     <string name="action_clear">삭제</string>
     <string name="action_apply">적용</string>
+    <string name="action_rename">이름 변경</string>
+    <string name="action_link_script">스크립트 연결</string>
+    <string name="action_unlink_script">스크립트 연결 해제</string>
+    <string name="action_delete">삭제</string>
+    <string name="rename_dialog_title">이름 변경</string>
+    <string name="rename_dialog_label">표시 이름</string>
+    <string name="rename_dialog_hint">앱에서 보이는 이름만 바뀌고 실제 파일은 그대로입니다. 비우면 원래 파일명으로 돌아갑니다.</string>
+    <string name="delete_dialog_title">삭제</string>
+    <string name="delete_dialog_msg">이 영상과 연결된 스크립트 파일을 저장소에서 영구 삭제합니다. 되돌릴 수 없습니다.</string>
+    <string name="snackbar_script_linked">스크립트 연결됨</string>
+    <string name="snackbar_script_unlinked">스크립트 연결 해제됨</string>
+    <string name="snackbar_deleted">삭제됨</string>
+    <string name="snackbar_delete_failed">삭제 실패 · 쓰기 권한이 필요합니다 (폴더 재등록)</string>
 
     <!-- Tag dialog -->
     <string name="tag_dialog_hint">태그를 쉼표(,)로 구분해서 입력하거나 아래 기존 태그를 누르세요</string>

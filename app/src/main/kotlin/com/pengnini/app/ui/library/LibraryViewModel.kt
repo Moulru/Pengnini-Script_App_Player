@@ -8,6 +8,7 @@ import com.pengnini.app.Container
 import com.pengnini.app.R
 import com.pengnini.app.data.db.FolderEntity
 import com.pengnini.app.data.db.VideoEntity
+import com.pengnini.app.data.db.displayTitle
 import com.pengnini.app.data.library.LibraryViewMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -140,6 +141,18 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun setCustomTitle(uri: String, title: String?) {
+        viewModelScope.launch { repo.setCustomTitle(uri, title) }
+    }
+
+    fun setFunscript(uri: String, scriptUri: String?) {
+        viewModelScope.launch { repo.setFunscript(uri, scriptUri) }
+    }
+
+    fun deleteVideo(uri: String, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch { onResult(repo.deleteVideo(uri)) }
+    }
+
     fun clearLibrary() {
         viewModelScope.launch { repo.clearLibrary() }
     }
@@ -152,6 +165,7 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         val s = search.trim().lowercase()
         return vids.filter { v ->
             val matchesSearch = s.isBlank() ||
+                v.displayTitle.lowercase().contains(s) ||
                 v.title.lowercase().contains(s) ||
                 v.tags.lowercase().contains(s)
             matchesSearch &&

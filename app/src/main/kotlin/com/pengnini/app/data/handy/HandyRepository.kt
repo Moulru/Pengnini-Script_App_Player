@@ -11,6 +11,7 @@ import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 class HandyRepository(private val keyStore: HandyKeyStore) {
@@ -47,6 +48,16 @@ class HandyRepository(private val keyStore: HandyKeyStore) {
 
     val hasKey: Boolean get() = !keyStore.read().isNullOrBlank()
 
+    // 세션 캐시 — 느린 인터넷·반복 재생에서 노란 sync 시간 단축
+    private val offsetTtlMs = 5 * 60 * 1000L
+    @Volatile private var cachedServerOffset: Long? = null
+    @Volatile private var cachedOffsetAt: Long = 0L
+    @Volatile private var lastUpload: Pair<String, String>? = null  // sha256 → url
+
+    fun sha256(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+
     suspend fun checkConnected(): Result<Boolean> = runCatching {
         if (!hasKey) return Result.failure(IllegalStateException("Connection Key가 등록되지 않았습니다"))
         api.getConnected().connected
@@ -64,7 +75,9 @@ class HandyRepository(private val keyStore: HandyKeyStore) {
         )
     }
 
-    suspend fun uploadScript(name: String, bytes: ByteArray): Result<String> = runCatching {
+    suspend fun uploadScript(name: String, bytes: ByteArray, sha256: String): Result<String> = runCatching {
+        // 같은 스크립트를 이 세션에서 이미 업로드했으면 재업로드 생략
+        lastUpload?.let { (sha, url) -> if (sha == sha256) return Result.success(url) }
         val mediaType = "application/json".toMediaType()
         val safeName = if (name.endsWith(".funscript", ignoreCase = true)) name else "$name.funscript"
         val body = MultipartBody.Part.createFormData(
@@ -72,12 +85,15 @@ class HandyRepository(private val keyStore: HandyKeyStore) {
             safeName,
             bytes.toRequestBody(mediaType),
         )
-        scriptApi.upload(body).url.ifBlank { error("업로드 응답이 비어있습니다") }
+        val url = scriptApi.upload(body).url.ifBlank { error("업로드 응답이 비어있습니다") }
+        lastUpload = sha256 to url
+        url
     }
 
-    suspend fun setupHssp(url: String): Result<Unit> = runCatching {
+    suspend fun setupHssp(url: String, sha256: String? = null): Result<Unit> = runCatching {
         runCatching { api.setMode(ModeBody(1)) }
-        api.hsspSetup(HsspSetupBody(url))
+        // sha256 전달 시 디바이스 캐시에 있으면 재다운로드 생략
+        api.hsspSetup(HsspSetupBody(url, sha256))
         Unit
     }
 
@@ -96,24 +112,40 @@ class HandyRepository(private val keyStore: HandyKeyStore) {
         Unit
     }
 
-    suspend fun syncOffset(samples: Int = 12): Long = withContext(Dispatchers.IO) {
-        val offsets = mutableListOf<Long>()
-        repeat(samples) {
-            try {
-                val tSend = System.currentTimeMillis()
-                val serverTime = api.getServerTime().serverTime
-                val tRecv = System.currentTimeMillis()
-                val rtt = tRecv - tSend
-                val estimated = serverTime + rtt / 2
-                offsets += estimated - tRecv
-            } catch (_: Exception) {
-                // skip failed sample
+    suspend fun syncOffset(samples: Int = 12): Long {
+        // 서버 클럭 오차는 몇 분간 안정적 → 세션 내 재측정 생략(영상마다 10회 왕복 제거)
+        val now = System.currentTimeMillis()
+        cachedServerOffset?.let { if (now - cachedOffsetAt < offsetTtlMs) return it }
+        val sampled = withContext(Dispatchers.IO) {
+            val offsets = mutableListOf<Long>()
+            repeat(samples) {
+                try {
+                    val tSend = System.currentTimeMillis()
+                    val serverTime = api.getServerTime().serverTime
+                    val tRecv = System.currentTimeMillis()
+                    val rtt = tRecv - tSend
+                    val estimated = serverTime + rtt / 2
+                    offsets += estimated - tRecv
+                } catch (_: Exception) {
+                    // skip failed sample
+                }
+            }
+            if (offsets.isEmpty()) {
+                null
+            } else {
+                val sorted = offsets.sorted()
+                val trimmed = if (sorted.size > 4) sorted.drop(1).dropLast(1) else sorted
+                trimmed.average().toLong()
             }
         }
-        if (offsets.isEmpty()) return@withContext 0L
-        val sorted = offsets.sorted()
-        val trimmed = if (sorted.size > 4) sorted.drop(1).dropLast(1) else sorted
-        trimmed.average().toLong()
+        // 측정 실패(네트워크 없음)는 캐시하지 않아 다음 시도에 재측정
+        return if (sampled != null) {
+            cachedServerOffset = sampled
+            cachedOffsetAt = now
+            sampled
+        } else {
+            0L
+        }
     }
 }
 

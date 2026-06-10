@@ -20,7 +20,13 @@ data class VideoEntity(
     val tags: String = "",
     val mimeType: String? = null,
     val lastPositionMs: Long = 0L,
+    /** 사용자가 지정한 표시 이름. null이면 파일명 기반 title 사용. 파일 자체는 변경하지 않음. */
+    val customTitle: String? = null,
 )
+
+/** 라이브러리·플레이어에서 보여줄 제목. customTitle이 있으면 우선. */
+val VideoEntity.displayTitle: String
+    get() = customTitle?.takeIf { it.isNotBlank() } ?: title
 
 @Entity(tableName = "folders")
 data class FolderEntity(
@@ -40,4 +46,5 @@ data class VideoUserDataEntity(
     val favorite: Boolean = false,
     val tags: String = "",
     val lastPositionMs: Long = 0L,
+    val customTitle: String? = null,
 )

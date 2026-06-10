@@ -38,6 +38,15 @@ interface VideoDao {
     @Query("UPDATE videos SET lastPositionMs = :positionMs WHERE uri = :uri")
     suspend fun setLastPosition(uri: String, positionMs: Long)
 
+    @Query("UPDATE videos SET customTitle = :title WHERE uri = :uri")
+    suspend fun setCustomTitle(uri: String, title: String?)
+
+    @Query("UPDATE videos SET funscriptUri = :scriptUri WHERE uri = :uri")
+    suspend fun setFunscript(uri: String, scriptUri: String?)
+
+    @Query("DELETE FROM videos WHERE uri = :uri")
+    suspend fun delete(uri: String)
+
     @Query("SELECT uri FROM videos ORDER BY addedAt DESC")
     suspend fun getAllUrisOrdered(): List<String>
 
@@ -68,6 +77,12 @@ interface VideoUserDataDao {
 
     @Query("UPDATE video_user_data SET lastPositionMs = :positionMs WHERE uri = :uri")
     suspend fun updateLastPosition(uri: String, positionMs: Long)
+
+    @Query("UPDATE video_user_data SET customTitle = :title WHERE uri = :uri")
+    suspend fun updateCustomTitle(uri: String, title: String?)
+
+    @Query("DELETE FROM video_user_data WHERE uri = :uri")
+    suspend fun delete(uri: String)
 }
 
 @Dao
