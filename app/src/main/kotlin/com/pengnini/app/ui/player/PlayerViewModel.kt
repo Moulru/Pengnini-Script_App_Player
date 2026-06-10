@@ -141,12 +141,13 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
                     return@launch
                 }
                 val bytes = transformFunscript(rawBytes, invert, speed)
-                val url = handyRepo.uploadScript(v.title, bytes).getOrElse {
+                val sha = handyRepo.sha256(bytes)
+                val url = handyRepo.uploadScript(v.title, bytes, sha).getOrElse {
                     _syncState.value = HandySyncState.Error("업로드 실패: ${it.message ?: "알 수 없음"}")
                     return@launch
                 }
                 _syncState.value = HandySyncState.Preparing
-                handyRepo.setupHssp(url).getOrElse {
+                handyRepo.setupHssp(url, sha).getOrElse {
                     _syncState.value = HandySyncState.Error("setup 실패")
                     return@launch
                 }

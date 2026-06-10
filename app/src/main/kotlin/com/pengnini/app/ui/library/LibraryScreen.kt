@@ -1,5 +1,6 @@
 package com.pengnini.app.ui.library
 
+import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -65,6 +66,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -72,6 +74,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.pengnini.app.R
 import com.pengnini.app.data.db.FolderEntity
+import com.pengnini.app.data.db.displayTitle
 import com.pengnini.app.data.library.LibraryViewMode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -99,10 +102,18 @@ fun LibraryScreen(
     var filterOpen by remember { mutableStateOf(false) }
     var actionVideoUri by remember { mutableStateOf<String?>(null) }
     var tagEditUri by remember { mutableStateOf<String?>(null) }
+    var renameUri by remember { mutableStateOf<String?>(null) }
+    var deleteUri by remember { mutableStateOf<String?>(null) }
+    var linkTargetUri by remember { mutableStateOf<String?>(null) }
     val snackbarHost = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val focusRequester = remember { FocusRequester() }
     val folderAddedMsg = stringResource(R.string.snackbar_folder_added)
+    val scriptLinkedMsg = stringResource(R.string.snackbar_script_linked)
+    val scriptUnlinkedMsg = stringResource(R.string.snackbar_script_unlinked)
+    val deletedMsg = stringResource(R.string.snackbar_deleted)
+    val deleteFailedMsg = stringResource(R.string.snackbar_delete_failed)
 
     val pickFolder = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
@@ -113,6 +124,25 @@ fun LibraryScreen(
                 snackbarHost.showSnackbar(folderAddedMsg, duration = SnackbarDuration.Short)
             }
         }
+    }
+
+    val pickScript = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        val target = linkTargetUri
+        if (uri != null && target != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
+            vm.setFunscript(target, uri.toString())
+            scope.launch {
+                snackbarHost.showSnackbar(scriptLinkedMsg, duration = SnackbarDuration.Short)
+            }
+        }
+        linkTargetUri = null
     }
 
     // 검색 모드 진입 시 자동 포커스 + 키보드 표시
@@ -297,6 +327,26 @@ fun LibraryScreen(
                     tagEditUri = uri
                     actionVideoUri = null
                 },
+                onRename = {
+                    renameUri = uri
+                    actionVideoUri = null
+                },
+                onLinkScript = {
+                    linkTargetUri = uri
+                    actionVideoUri = null
+                    pickScript.launch(arrayOf("*/*"))
+                },
+                onUnlinkScript = {
+                    vm.setFunscript(uri, null)
+                    actionVideoUri = null
+                    scope.launch {
+                        snackbarHost.showSnackbar(scriptUnlinkedMsg, duration = SnackbarDuration.Short)
+                    }
+                },
+                onDelete = {
+                    deleteUri = uri
+                    actionVideoUri = null
+                },
             )
         }
     }
@@ -315,6 +365,82 @@ fun LibraryScreen(
             )
         }
     }
+
+    renameUri?.let { uri ->
+        val video = videos.firstOrNull { it.uri == uri }
+        if (video != null) {
+            RenameDialog(
+                initial = video.displayTitle,
+                onDismiss = { renameUri = null },
+                onConfirm = { newName ->
+                    vm.setCustomTitle(uri, newName)
+                    renameUri = null
+                },
+            )
+        }
+    }
+
+    deleteUri?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { deleteUri = null },
+            title = { Text(stringResource(R.string.delete_dialog_title)) },
+            text = { Text(stringResource(R.string.delete_dialog_msg)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteVideo(uri) { ok ->
+                        scope.launch {
+                            snackbarHost.showSnackbar(
+                                if (ok) deletedMsg else deleteFailedMsg,
+                                duration = SnackbarDuration.Short,
+                            )
+                        }
+                    }
+                    deleteUri = null
+                }) { Text(stringResource(R.string.action_delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteUri = null }) { Text(stringResource(R.string.action_cancel)) }
+            },
+        )
+    }
+}
+
+@Composable
+private fun RenameDialog(
+    initial: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String?) -> Unit,
+) {
+    var text by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.rename_dialog_title)) },
+        text = {
+            Column {
+                Text(
+                    stringResource(R.string.rename_dialog_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.rename_dialog_label)) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(text.trim().ifBlank { null }) }) {
+                Text(stringResource(R.string.action_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        },
+    )
 }
 
 @Composable

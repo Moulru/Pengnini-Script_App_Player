@@ -765,7 +765,7 @@ private fun SystemContent() {
             )
             ListItem(
                 headlineContent = { Text("앱 버전") },
-                supportingContent = { Text("Pengnini / 1.0.2") },
+                supportingContent = { Text("Pengnini / 1.0.3") },
                 leadingContent = { Icon(Icons.Outlined.Info, null) },
             )
         }

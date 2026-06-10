@@ -7,7 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [VideoEntity::class, FolderEntity::class, VideoUserDataEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class PengniniDatabase : RoomDatabase() {
@@ -40,5 +40,13 @@ val MIGRATION_2_3: Migration = object : Migration(2, 3) {
             "INSERT OR IGNORE INTO video_user_data (uri, rating, favorite, tags, lastPositionMs) " +
                 "SELECT uri, rating, favorite, tags, lastPositionMs FROM videos",
         )
+    }
+}
+
+val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // 표시이름 override 컬럼 추가(nullable TEXT — Room의 String? 스키마와 일치, DEFAULT 없음)
+        db.execSQL("ALTER TABLE videos ADD COLUMN customTitle TEXT")
+        db.execSQL("ALTER TABLE video_user_data ADD COLUMN customTitle TEXT")
     }
 }

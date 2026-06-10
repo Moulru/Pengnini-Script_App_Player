@@ -1,5 +1,6 @@
 package com.pengnini.app.ui.library
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -13,8 +14,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.LinkOff
 import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.StarBorder
@@ -22,8 +27,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -38,11 +45,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pengnini.app.R
 import com.pengnini.app.data.db.VideoEntity
+import com.pengnini.app.data.db.displayTitle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,6 +62,10 @@ fun VideoActionSheet(
     onSetRating: (Int) -> Unit,
     onSetFavorite: (Boolean) -> Unit,
     onEditTags: () -> Unit,
+    onRename: () -> Unit,
+    onLinkScript: () -> Unit,
+    onUnlinkScript: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
@@ -65,7 +79,7 @@ fun VideoActionSheet(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                video.title,
+                video.displayTitle,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 maxLines = 2,
@@ -123,8 +137,45 @@ fun VideoActionSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+
+            HorizontalDivider()
+            ActionRow(Icons.Outlined.Edit, stringResource(R.string.action_rename), onClick = onRename)
+            ActionRow(Icons.Outlined.Link, stringResource(R.string.action_link_script), onClick = onLinkScript)
+            if (video.funscriptUri != null) {
+                ActionRow(
+                    Icons.Outlined.LinkOff,
+                    stringResource(R.string.action_unlink_script),
+                    onClick = onUnlinkScript,
+                )
+            }
+            ActionRow(
+                Icons.Outlined.DeleteOutline,
+                stringResource(R.string.action_delete),
+                tint = MaterialTheme.colorScheme.error,
+                onClick = onDelete,
+            )
             Spacer(Modifier.height(8.dp))
         }
+    }
+}
+
+@Composable
+private fun ActionRow(
+    icon: ImageVector,
+    label: String,
+    tint: Color = LocalContentColor.current,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = tint)
+        Spacer(Modifier.width(16.dp))
+        Text(label, color = tint, style = MaterialTheme.typography.bodyLarge)
     }
 }
 

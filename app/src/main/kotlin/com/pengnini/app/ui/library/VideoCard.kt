@@ -44,6 +44,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.request.videoFrameMillis
 import com.pengnini.app.data.db.VideoEntity
+import com.pengnini.app.data.db.displayTitle
 import com.pengnini.app.ui.common.formatDuration
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -78,7 +79,7 @@ fun VideoGridCard(
         ) {
             AsyncImage(
                 model = request,
-                contentDescription = video.title,
+                contentDescription = video.displayTitle,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -140,7 +141,7 @@ fun VideoGridCard(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
-                video.title,
+                video.displayTitle,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
@@ -197,7 +198,7 @@ fun VideoListRow(
             ) {
                 AsyncImage(
                     model = request,
-                    contentDescription = video.title,
+                    contentDescription = video.displayTitle,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -219,7 +220,7 @@ fun VideoListRow(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
-                    video.title,
+                    video.displayTitle,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
