@@ -44,6 +44,9 @@ interface VideoDao {
     @Query("UPDATE videos SET funscriptUri = :scriptUri WHERE uri = :uri")
     suspend fun setFunscript(uri: String, scriptUri: String?)
 
+    @Query("UPDATE videos SET durationMs = :durationMs, width = :width, height = :height WHERE uri = :uri")
+    suspend fun updateMediaInfo(uri: String, durationMs: Long, width: Int, height: Int)
+
     @Query("DELETE FROM videos WHERE uri = :uri")
     suspend fun delete(uri: String)
 
@@ -83,6 +86,9 @@ interface VideoUserDataDao {
 
     @Query("DELETE FROM video_user_data WHERE uri = :uri")
     suspend fun delete(uri: String)
+
+    @Query("DELETE FROM video_user_data")
+    suspend fun clear()
 }
 
 @Dao

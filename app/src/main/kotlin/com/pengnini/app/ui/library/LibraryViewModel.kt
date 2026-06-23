@@ -114,6 +114,27 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun addSmbFolder(
+        host: String,
+        share: String,
+        path: String,
+        username: String,
+        password: String,
+        onResult: (Int) -> Unit,
+    ) {
+        viewModelScope.launch {
+            val autoMatch = prefs.scriptAutoMatch.first()
+            val multiExt = prefs.scriptMultiExt.first()
+            isScanning.value = true
+            val count = try {
+                repo.addSmbFolder(host, share, path, username, password, "", autoMatch, multiExt)
+            } finally {
+                isScanning.value = false
+            }
+            onResult(count)
+        }
+    }
+
     fun removeFolder(uri: String) {
         viewModelScope.launch { repo.removeFolder(uri) }
     }

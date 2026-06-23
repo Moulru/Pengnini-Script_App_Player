@@ -10,6 +10,7 @@ import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
+import retrofit2.Response
 import retrofit2.Retrofit
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
@@ -90,15 +91,20 @@ class HandyRepository(private val keyStore: HandyKeyStore) {
         url
     }
 
+    // Retrofit은 Response<T> 반환 시 4xx/5xx에 예외를 던지지 않으므로 직접 검사해야 한다.
+    private fun Response<Unit>.orThrow() {
+        if (!isSuccessful) error("Handy 응답 오류 HTTP ${code()}")
+    }
+
     suspend fun setupHssp(url: String, sha256: String? = null): Result<Unit> = runCatching {
         runCatching { api.setMode(ModeBody(1)) }
         // sha256 전달 시 디바이스 캐시에 있으면 재다운로드 생략
-        api.hsspSetup(HsspSetupBody(url, sha256))
+        api.hsspSetup(HsspSetupBody(url, sha256)).orThrow()
         Unit
     }
 
     suspend fun play(estimatedServerTime: Long, startTimeMs: Long): Result<Unit> = runCatching {
-        api.hsspPlay(HsspPlayBody(estimatedServerTime, startTimeMs))
+        api.hsspPlay(HsspPlayBody(estimatedServerTime, startTimeMs)).orThrow()
         Unit
     }
 
@@ -108,7 +114,7 @@ class HandyRepository(private val keyStore: HandyKeyStore) {
     }
 
     suspend fun setStrokeRange(min: Int, max: Int): Result<Unit> = runCatching {
-        api.setSlide(SlideBody(min, max))
+        api.setSlide(SlideBody(min, max)).orThrow()
         Unit
     }
 

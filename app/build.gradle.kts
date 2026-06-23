@@ -14,8 +14,8 @@ android {
         applicationId = "com.pengnini.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.0.3"
+        versionCode = 5
+        versionName = "1.1.1"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -74,6 +74,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.okhttp.logging)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.smbj)
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
@@ -82,6 +83,5 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.material.icons.extended)
     implementation(libs.coil.compose)
-    implementation(libs.coil.video)
     debugImplementation(libs.compose.ui.tooling)
 }

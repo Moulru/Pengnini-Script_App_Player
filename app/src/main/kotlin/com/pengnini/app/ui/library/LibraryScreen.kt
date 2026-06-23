@@ -7,6 +7,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.outlined.Lan
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import com.pengnini.app.data.smb.SmbManager
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -47,7 +52,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -58,6 +66,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -105,6 +114,8 @@ fun LibraryScreen(
     var renameUri by remember { mutableStateOf<String?>(null) }
     var deleteUri by remember { mutableStateOf<String?>(null) }
     var linkTargetUri by remember { mutableStateOf<String?>(null) }
+    var smbDialogOpen by remember { mutableStateOf(false) }
+    var selectedTab by rememberSaveable { mutableStateOf(0) }
     val snackbarHost = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -154,6 +165,9 @@ fun LibraryScreen(
     }
 
     val activeFilterCount = countActiveFilters(filter)
+    val displayedVideos = remember(videos, selectedTab) {
+        videos.filter { (selectedTab == 0) != SmbManager.isSmb(it.uri) }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHost) },
@@ -239,26 +253,37 @@ fun LibraryScreen(
             }
         },
     ) { padding ->
-        PullToRefreshBox(
-            isRefreshing = isScanning,
-            onRefresh = {
-                if (folders.isNotEmpty()) vm.rescanAll()
-            },
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-        ) {
-            when {
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            TabRow(selectedTabIndex = selectedTab) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text(stringResource(R.string.tab_local)) },
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = { Text(stringResource(R.string.tab_network)) },
+                )
+            }
+            PullToRefreshBox(
+                isRefreshing = isScanning,
+                onRefresh = {
+                    if (folders.isNotEmpty()) vm.rescanAll()
+                },
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                when {
                 !initialLoaded -> Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(MaterialTheme.colorScheme.background),
                 )
-                folders.isEmpty() && videos.isEmpty() -> EmptyLibrary(
-                    modifier = Modifier.fillMaxSize(),
-                    onAdd = { folderDialogOpen = true },
-                )
-                videos.isEmpty() -> EmptyAfterFolder(modifier = Modifier.fillMaxSize())
+                displayedVideos.isEmpty() && selectedTab == 1 ->
+                    EmptyNetworkTab(modifier = Modifier.fillMaxSize(), onAdd = { smbDialogOpen = true })
+                displayedVideos.isEmpty() && folders.none { SmbManager.isSmb(it.uri) == (selectedTab == 1) } ->
+                    EmptyLibrary(modifier = Modifier.fillMaxSize(), onAdd = { folderDialogOpen = true })
+                displayedVideos.isEmpty() -> EmptyAfterFolder(modifier = Modifier.fillMaxSize())
                 viewMode == LibraryViewMode.GRID -> LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 170.dp),
                     modifier = Modifier.fillMaxSize(),
@@ -266,7 +291,7 @@ fun LibraryScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    items(videos, key = { it.uri }) { v ->
+                    items(displayedVideos, key = { it.uri }) { v ->
                         VideoGridCard(
                             video = v,
                             onClick = { onOpenPlayer(v.uri) },
@@ -280,7 +305,7 @@ fun LibraryScreen(
                     contentPadding = PaddingValues(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(videos, key = { it.uri }) { v ->
+                    items(displayedVideos, key = { it.uri }) { v ->
                         VideoListRow(
                             video = v,
                             onClick = { onOpenPlayer(v.uri) },
@@ -291,14 +316,41 @@ fun LibraryScreen(
                 }
             }
         }
+        }
     }
 
     if (folderDialogOpen) {
         FolderManagerDialog(
-            folders = folders,
-            onAdd = { pickFolder.launch(null) },
+            isNetwork = selectedTab == 1,
+            folders = folders.filter { SmbManager.isSmb(it.uri) == (selectedTab == 1) },
+            onAddLocal = {
+                folderDialogOpen = false
+                pickFolder.launch(null)
+            },
+            onAddSmb = {
+                folderDialogOpen = false
+                smbDialogOpen = true
+            },
             onRemove = { vm.removeFolder(it) },
             onDismiss = { folderDialogOpen = false },
+        )
+    }
+
+    if (smbDialogOpen) {
+        SmbFolderAddDialog(
+            onDismiss = { smbDialogOpen = false },
+            onAdd = { host, share, path, user, pass ->
+                smbDialogOpen = false
+                vm.addSmbFolder(host, share, path, user, pass) { count ->
+                    scope.launch {
+                        snackbarHost.showSnackbar(
+                            if (count > 0) context.getString(R.string.smb_added, count)
+                            else context.getString(R.string.smb_empty),
+                            duration = SnackbarDuration.Short,
+                        )
+                    }
+                }
+            },
         )
     }
 
@@ -517,9 +569,52 @@ private fun EmptyAfterFolder(modifier: Modifier = Modifier) {
 }
 
 @Composable
+private fun EmptyNetworkTab(modifier: Modifier = Modifier, onAdd: () -> Unit) {
+    LazyColumn(modifier = modifier) {
+        item {
+            Column(
+                modifier = Modifier
+                    .fillParentMaxSize()
+                    .padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    Icons.Outlined.Lan,
+                    contentDescription = null,
+                    modifier = Modifier.size(64.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    stringResource(R.string.network_empty_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    stringResource(R.string.network_empty_subtitle),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+                Spacer(Modifier.height(20.dp))
+                FilledTonalButton(onClick = onAdd) {
+                    Icon(Icons.Outlined.Lan, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.folder_dialog_add_network))
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun FolderManagerDialog(
     folders: List<FolderEntity>,
-    onAdd: () -> Unit,
+    isNetwork: Boolean,
+    onAddLocal: () -> Unit,
+    onAddSmb: () -> Unit,
     onRemove: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -527,32 +622,41 @@ private fun FolderManagerDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.folder_dialog_title)) },
         text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 80.dp, max = 480.dp)
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                if (folders.isEmpty()) {
-                    Text(
-                        stringResource(R.string.folder_dialog_empty),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 16.dp),
-                    )
-                } else {
-                    folders.forEach { f ->
-                        FolderRow(folder = f, onRemove = { onRemove(f.uri) })
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // 폴더 목록만 내부 스크롤 — 추가 버튼은 아래 고정(목록이 길어도 항상 보이게)
+                Column(
+                    modifier = Modifier
+                        .heightIn(min = 60.dp, max = 340.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    if (folders.isEmpty()) {
+                        Text(
+                            stringResource(R.string.folder_dialog_empty),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 16.dp),
+                        )
+                    } else {
+                        folders.forEach { f ->
+                            FolderRow(folder = f, onRemove = { onRemove(f.uri) })
+                        }
                     }
                 }
                 Spacer(Modifier.height(12.dp))
                 FilledTonalButton(
-                    onClick = onAdd,
+                    onClick = if (isNetwork) onAddSmb else onAddLocal,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Icon(Icons.Outlined.CreateNewFolder, contentDescription = null)
+                    Icon(
+                        if (isNetwork) Icons.Outlined.Lan else Icons.Outlined.CreateNewFolder,
+                        contentDescription = null,
+                    )
                     Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.folder_dialog_add))
+                    Text(
+                        stringResource(
+                            if (isNetwork) R.string.folder_dialog_add_network else R.string.folder_dialog_add,
+                        ),
+                    )
                 }
             }
         },
@@ -560,6 +664,75 @@ private fun FolderManagerDialog(
             TextButton(onClick = onDismiss) {
                 Text(stringResource(R.string.folder_dialog_close))
             }
+        },
+    )
+}
+
+@Composable
+private fun SmbFolderAddDialog(
+    onDismiss: () -> Unit,
+    onAdd: (host: String, share: String, path: String, username: String, password: String) -> Unit,
+) {
+    var host by remember { mutableStateOf("") }
+    var share by remember { mutableStateOf("") }
+    var path by remember { mutableStateOf("") }
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.smb_dialog_title)) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = host,
+                    onValueChange = { host = it },
+                    label = { Text(stringResource(R.string.smb_host)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = share,
+                    onValueChange = { share = it },
+                    label = { Text(stringResource(R.string.smb_share)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = path,
+                    onValueChange = { path = it },
+                    label = { Text(stringResource(R.string.smb_path)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = username,
+                    onValueChange = { username = it },
+                    label = { Text(stringResource(R.string.smb_username)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text(stringResource(R.string.smb_password)) },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = host.isNotBlank() && share.isNotBlank(),
+                onClick = { onAdd(host.trim(), share.trim(), path.trim(), username.trim(), password) },
+            ) { Text(stringResource(R.string.smb_add)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
         },
     )
 }

@@ -166,4 +166,20 @@
 
     <!-- About -->
     <string name="settings_version_value">버전 0.2.0 · MVP-2</string>
+
+    <!-- Network (SMB) folder -->
+    <string name="tab_local">로컬</string>
+    <string name="tab_network">네트워크</string>
+    <string name="folder_dialog_add_network">네트워크 폴더 추가</string>
+    <string name="smb_dialog_title">네트워크 폴더 추가</string>
+    <string name="smb_host">호스트 (예: 192.168.0.10)</string>
+    <string name="smb_share">공유 이름</string>
+    <string name="smb_path">하위 경로 (선택)</string>
+    <string name="smb_username">사용자 (선택)</string>
+    <string name="smb_password">비밀번호 (선택)</string>
+    <string name="smb_add">추가</string>
+    <string name="smb_added">네트워크 영상 %1$d개를 추가했어요</string>
+    <string name="smb_empty">영상을 찾지 못했어요. 호스트·공유 이름·계정을 확인해 주세요</string>
+    <string name="network_empty_title">네트워크 영상이 없어요</string>
+    <string name="network_empty_subtitle">네트워크 폴더를 추가하거나 연결을 확인해 주세요</string>
 </resources>

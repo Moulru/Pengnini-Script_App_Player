@@ -72,6 +72,15 @@ class MetadataStore(private val context: Context) {
         }
     }
 
+    /** 폴더의 사이드카(.pengnini.json)를 삭제 — 라이브러리 완전 초기화용. */
+    fun delete(folderUri: String) {
+        runCatching {
+            val tree = DocumentFile.fromTreeUri(context, Uri.parse(folderUri)) ?: return
+            tree.findFile(SIDECAR_NAME)?.delete()
+            tree.findFile(TMP_NAME)?.delete()
+        }
+    }
+
     private companion object {
         const val SIDECAR_NAME = ".pengnini.json"
         const val TMP_NAME = ".pengnini.tmp"

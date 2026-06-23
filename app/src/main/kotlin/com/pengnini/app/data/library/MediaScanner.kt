@@ -5,10 +5,11 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import com.pengnini.app.data.db.VideoEntity
+import com.pengnini.app.data.smb.SmbManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-class MediaScanner(private val context: Context) {
+class MediaScanner(private val context: Context, private val smb: SmbManager) {
 
     suspend fun scan(
         treeUri: Uri,
@@ -53,6 +54,53 @@ class MediaScanner(private val context: Context) {
                 subtitleUri = subs[base]?.toString(),
                 mimeType = v.type,
             )
+        }
+    }
+
+    /** SMB 네트워크 폴더 스캔. 길이·해상도는 네트워크 비용 때문에 0으로 두고 재생 시 채운다. */
+    suspend fun scanSmb(folderUri: String, multiExt: Boolean = false): List<VideoEntity> =
+        withContext(Dispatchers.IO) {
+            val videos = mutableListOf<Pair<String, SmbManager.SmbEntry>>()
+            val scripts = HashMap<String, String>()
+            val altScripts = HashMap<String, String>()
+            val subs = HashMap<String, String>()
+
+            walkSmb(folderUri) { childUri, entry ->
+                val name = entry.name
+                if (name.startsWith(".pengnini", ignoreCase = true)) return@walkSmb
+                val lower = name.lowercase()
+                val base = name.substringBeforeLast('.', name).lowercase()
+                when {
+                    VIDEO_EXTS.any { lower.endsWith(it) } -> videos += childUri to entry
+                    lower.endsWith(".funscript") -> scripts[base] = childUri
+                    multiExt && lower.endsWith(".json") -> altScripts[base] = childUri
+                    SUB_EXTS.any { lower.endsWith(it) } -> subs[base] = childUri
+                }
+            }
+
+            videos.map { (fileUri, entry) ->
+                val base = entry.name.substringBeforeLast('.', entry.name).lowercase()
+                VideoEntity(
+                    uri = fileUri,
+                    folderUri = folderUri,
+                    title = entry.name.substringBeforeLast('.', entry.name),
+                    durationMs = 0L,
+                    width = 0,
+                    height = 0,
+                    sizeBytes = entry.size,
+                    addedAt = System.currentTimeMillis(),
+                    funscriptUri = scripts[base] ?: altScripts[base],
+                    subtitleUri = subs[base],
+                    mimeType = null,
+                )
+            }
+        }
+
+    private fun walkSmb(folderUri: String, visit: (String, SmbManager.SmbEntry) -> Unit) {
+        val entries = runCatching { smb.list(folderUri) }.getOrDefault(emptyList())
+        entries.forEach { entry ->
+            val childUri = SmbManager.childUri(folderUri, entry.name)
+            if (entry.isDirectory) walkSmb(childUri, visit) else visit(childUri, entry)
         }
     }
 
