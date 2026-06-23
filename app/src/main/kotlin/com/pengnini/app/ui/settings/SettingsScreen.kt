@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pengnini.app.Container
 import com.pengnini.app.data.handy.HandyStatus
+import com.pengnini.app.data.media.ThumbnailCache
 import com.pengnini.app.data.secure.HandyKeyStore
 import com.pengnini.app.data.secure.LockPattern
 import com.pengnini.app.ui.lock.PatternLock
@@ -336,6 +337,8 @@ private fun ScriptContent() {
     val autoMatch by prefs.scriptAutoMatch.collectAsStateWithLifecycle(initialValue = true)
     val multiExt by prefs.scriptMultiExt.collectAsStateWithLifecycle(initialValue = false)
     val invert by prefs.scriptInvert.collectAsStateWithLifecycle(initialValue = false)
+    val defaultEnabled by prefs.defaultScriptEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val defaultCpm by prefs.defaultScriptCpm.collectAsStateWithLifecycle(initialValue = 60)
 
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Column {
@@ -360,7 +363,38 @@ private fun ScriptContent() {
                 checked = invert,
                 onCheckedChange = { scope.launch { prefs.setScriptInvert(it) } },
             )
+            BoundSwitchRow(
+                icon = Icons.Outlined.Bolt,
+                title = "기본 스크립트",
+                subtitle = "스크립트 없는 영상에 단순 왕복 패턴 자동 재생",
+                checked = defaultEnabled,
+                onCheckedChange = { scope.launch { prefs.setDefaultScriptEnabled(it) } },
+            )
+            if (defaultEnabled) {
+                DefaultScriptSpeedRow(
+                    cpm = defaultCpm,
+                    onChange = { scope.launch { prefs.setDefaultScriptCpm(it) } },
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun DefaultScriptSpeedRow(cpm: Int, onChange: (Int) -> Unit) {
+    var local by remember(cpm) { mutableStateOf(cpm.toFloat()) }
+    Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) {
+        Text(
+            "왕복 속도: ${Math.round(local)}회/분",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Slider(
+            value = local,
+            onValueChange = { local = it },
+            onValueChangeFinished = { onChange(Math.round(local)) },
+            valueRange = 30f..200f,
+            steps = 16, // 10단위 스냅 (30, 40, …, 200)
+        )
     }
 }
 
@@ -727,6 +761,7 @@ private fun SystemContent() {
     val lang by prefs.language.collectAsStateWithLifecycle(initialValue = "system")
     var langDialogOpen by remember { mutableStateOf(false) }
     var clearedMessage by remember { mutableStateOf<String?>(null) }
+    var resetDialogOpen by remember { mutableStateOf(false) }
 
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
         Column {
@@ -744,28 +779,18 @@ private fun SystemContent() {
                 onClick = { langDialogOpen = true },
             )
             ListItem(
-                headlineContent = { Text("캐시 삭제") },
+                headlineContent = { Text("라이브러리 초기화") },
                 supportingContent = {
-                    Text(clearedMessage ?: "데이터 캐시 + 썸네일 캐시 초기화")
+                    Text(clearedMessage ?: "폴더·영상·별점·태그를 모두 초기화 · 실제 파일은 안전")
                 },
-                leadingContent = { Icon(Icons.Outlined.Storage, null) },
+                leadingContent = { Icon(Icons.Outlined.DeleteForever, null) },
                 trailingContent = {
-                    TextButton(onClick = {
-                        scope.launch {
-                            runCatching {
-                                Container.libraryRepo.clearLibrary()
-                                val loader = coil.Coil.imageLoader(context)
-                                loader.memoryCache?.clear()
-                                loader.diskCache?.clear()
-                            }
-                            clearedMessage = "캐시 삭제됨"
-                        }
-                    }) { Text("삭제") }
+                    TextButton(onClick = { resetDialogOpen = true }) { Text("초기화") }
                 },
             )
             ListItem(
                 headlineContent = { Text("앱 버전") },
-                supportingContent = { Text("Pengnini / 1.0.3") },
+                supportingContent = { Text("Pengnini / 1.1.1") },
                 leadingContent = { Icon(Icons.Outlined.Info, null) },
             )
         }
@@ -781,6 +806,35 @@ private fun SystemContent() {
                 scope.launch { prefs.setLanguage(it) }
                 com.pengnini.app.applyAppLocale(it)
                 langDialogOpen = false
+            },
+        )
+    }
+
+    if (resetDialogOpen) {
+        AlertDialog(
+            onDismissRequest = { resetDialogOpen = false },
+            icon = { Icon(Icons.Outlined.DeleteForever, null) },
+            title = { Text("라이브러리를 초기화할까요?") },
+            text = {
+                Text("폴더·영상 목록 및 별점·즐겨찾기·태그까지 모두 삭제됩니다.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    resetDialogOpen = false
+                    scope.launch {
+                        runCatching {
+                            Container.libraryRepo.clearLibrary()
+                            val loader = coil.Coil.imageLoader(context)
+                            loader.memoryCache?.clear()
+                            loader.diskCache?.clear()
+                            ThumbnailCache.clearAll(context)
+                        }
+                        clearedMessage = "초기화됨"
+                    }
+                }) { Text("초기화") }
+            },
+            dismissButton = {
+                TextButton(onClick = { resetDialogOpen = false }) { Text("취소") }
             },
         )
     }

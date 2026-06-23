@@ -53,6 +53,8 @@ class PrefsStore(context: Context) {
     val scriptAutoMatch: Flow<Boolean> = ds.data.map { it[KEY_SCRIPT_AUTO] ?: true }
     val scriptMultiExt: Flow<Boolean> = ds.data.map { it[KEY_SCRIPT_MULTI_EXT] ?: false }
     val scriptInvert: Flow<Boolean> = ds.data.map { it[KEY_SCRIPT_INVERT] ?: false }
+    val defaultScriptEnabled: Flow<Boolean> = ds.data.map { it[KEY_DEFAULT_SCRIPT_ENABLED] ?: false }
+    val defaultScriptCpm: Flow<Int> = ds.data.map { it[KEY_DEFAULT_SCRIPT_CPM] ?: 60 }
 
     // Security
     val appLockEnabled: Flow<Boolean> = ds.data.map { it[KEY_APP_LOCK_ENABLED] ?: false }
@@ -95,6 +97,8 @@ class PrefsStore(context: Context) {
     suspend fun setScriptAutoMatch(v: Boolean) { ds.edit { it[KEY_SCRIPT_AUTO] = v } }
     suspend fun setScriptMultiExt(v: Boolean) { ds.edit { it[KEY_SCRIPT_MULTI_EXT] = v } }
     suspend fun setScriptInvert(v: Boolean) { ds.edit { it[KEY_SCRIPT_INVERT] = v } }
+    suspend fun setDefaultScriptEnabled(v: Boolean) { ds.edit { it[KEY_DEFAULT_SCRIPT_ENABLED] = v } }
+    suspend fun setDefaultScriptCpm(v: Int) { ds.edit { it[KEY_DEFAULT_SCRIPT_CPM] = v.coerceIn(30, 200) } }
 
     suspend fun setAppLockEnabled(v: Boolean) { ds.edit { it[KEY_APP_LOCK_ENABLED] = v } }
 
@@ -121,6 +125,8 @@ class PrefsStore(context: Context) {
         val KEY_SCRIPT_AUTO = booleanPreferencesKey("script_auto_match")
         val KEY_SCRIPT_MULTI_EXT = booleanPreferencesKey("script_multi_ext")
         val KEY_SCRIPT_INVERT = booleanPreferencesKey("script_invert")
+        val KEY_DEFAULT_SCRIPT_ENABLED = booleanPreferencesKey("default_script_enabled")
+        val KEY_DEFAULT_SCRIPT_CPM = intPreferencesKey("default_script_cpm")
         val KEY_APP_LOCK_ENABLED = booleanPreferencesKey("app_lock_enabled")
     }
 }

@@ -7,6 +7,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.pengnini.app.Container
 import com.pengnini.app.data.db.VideoEntity
+import com.pengnini.app.data.smb.SmbManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -123,26 +124,40 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
     fun startSync(speed: Float = playbackSpeed) {
         if (syncInitialized) return
         val v = _video.value ?: return
-        val scriptUri = v.funscriptUri ?: return
         if (!handyRepo.hasKey) return
         playbackSpeed = speed
         viewModelScope.launch {
-            // StateFlow는 초기값(false)으로 시작하므로 prefs에서 직접 await
+            val scriptUri = v.funscriptUri
+            val useDefault = scriptUri == null
+            // 스크립트 없고 기본 스크립트도 꺼져 있으면 동기화하지 않음
+            if (useDefault && !prefs.defaultScriptEnabled.first()) return@launch
             val invert = prefs.scriptInvert.first()
             _syncState.value = HandySyncState.Uploading
             try {
-                val rawBytes = withContext(Dispatchers.IO) {
-                    runCatching {
-                        getApplication<Application>().contentResolver
-                            .openInputStream(Uri.parse(scriptUri))?.use { it.readBytes() }
-                    }.getOrNull()
-                } ?: run {
-                    _syncState.value = HandySyncState.Error("스크립트 읽기 실패")
-                    return@launch
+                val bytes = if (useDefault) {
+                    val cpm = prefs.defaultScriptCpm.first()
+                    val durMs = v.durationMs.takeIf { it > 0 } ?: 7_200_000L // 길이 미상(SMB 등) 시 2시간
+                    // 0↔99 단순 왕복 + 영상 배속 굽기. invert는 대칭이라 적용 불필요.
+                    transformFunscript(generateDefaultScript(durMs, cpm), false, speed)
+                } else {
+                    val rawBytes = withContext(Dispatchers.IO) {
+                        runCatching {
+                            if (SmbManager.isSmb(scriptUri!!)) {
+                                Container.smbManager.readBytes(scriptUri)
+                            } else {
+                                getApplication<Application>().contentResolver
+                                    .openInputStream(Uri.parse(scriptUri))?.use { it.readBytes() }
+                            }
+                        }.getOrNull()
+                    } ?: run {
+                        _syncState.value = HandySyncState.Error("스크립트 읽기 실패")
+                        return@launch
+                    }
+                    transformFunscript(rawBytes, invert, speed)
                 }
-                val bytes = transformFunscript(rawBytes, invert, speed)
                 val sha = handyRepo.sha256(bytes)
-                val url = handyRepo.uploadScript(v.title, bytes, sha).getOrElse {
+                val name = if (useDefault) "default" else v.title
+                val url = handyRepo.uploadScript(name, bytes, sha).getOrElse {
                     _syncState.value = HandySyncState.Error("업로드 실패: ${it.message ?: "알 수 없음"}")
                     return@launch
                 }
@@ -160,12 +175,32 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
         }
     }
 
+    /** 스크립트 없는 영상용 기본 패턴: 0↔99 단순 왕복(cpm=분당 왕복). 스트로크 범위는 Handy /slide가 적용. */
+    private fun generateDefaultScript(durationMs: Long, cpm: Int): ByteArray {
+        val halfMs = (60000L / cpm.coerceIn(30, 200)) / 2 // 0→99 또는 99→0 한 구간
+        val sb = StringBuilder("{\"actions\":[")
+        var t = 0L
+        var pos = 0
+        var first = true
+        var count = 0
+        // 액션 수 상한 — 매우 빠른 속도 + 긴 영상에서 JSON 과대·업로드 부담 방지
+        while (t <= durationMs && count < 60_000) {
+            if (!first) sb.append(',')
+            sb.append("{\"at\":").append(t).append(",\"pos\":").append(pos).append('}')
+            first = false
+            pos = if (pos == 0) 99 else 0
+            t += halfMs
+            count++
+        }
+        sb.append("]}")
+        return sb.toString().toByteArray()
+    }
+
     /** 반전 설정 변경 시 호출. stop → reset → startSync 흐름으로 funscript 재업로드.
      *  PlayerScreen의 LaunchedEffect(syncState)가 Ready 감지 시 현재 위치에서 onPlay를 다시 트리거한다. */
     private fun resync() {
-        val v = _video.value ?: return
-        if (v.funscriptUri == null) return
-        if (!handyRepo.hasKey) return
+        // funscript 유무와 무관 — 기본 스크립트도 배속 변경 시 재업로드해야 한다(판단은 startSync 내부).
+        if (_video.value == null || !handyRepo.hasKey) return
         viewModelScope.launch {
             runCatching { handyRepo.stop() }
             syncInitialized = false
@@ -271,6 +306,16 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
         val v = _video.value ?: return
         if (positionMs <= 0) return
         viewModelScope.launch { repo.setLastPosition(v.uri, positionMs) }
+    }
+
+    /** 첫 재생 때 확보된 길이·해상도를 DB에 1회 기록(스캔 시 못 구한 SMB 영상). */
+    fun saveMediaInfo(uri: String, durationMs: Long, width: Int, height: Int) {
+        if (durationMs <= 0) return
+        // 메모리 _video도 갱신 — 같은 세션 동안 시크바/마커/제스처가 durationMs=0으로 깨지지 않게
+        _video.value?.takeIf { it.uri == uri }?.let {
+            _video.value = it.copy(durationMs = durationMs, width = width, height = height)
+        }
+        viewModelScope.launch { repo.updateMediaInfo(uri, durationMs, width, height) }
     }
 
     fun resetPosition() {

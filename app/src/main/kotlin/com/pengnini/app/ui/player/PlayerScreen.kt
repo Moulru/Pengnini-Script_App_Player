@@ -86,12 +86,15 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.pengnini.app.Container
 import com.pengnini.app.R
 import com.pengnini.app.data.db.VideoEntity
 import com.pengnini.app.data.db.displayTitle
+import com.pengnini.app.data.smb.SmbDataSource
+import com.pengnini.app.data.smb.SmbManager
 import com.pengnini.app.ui.common.formatDuration
 import com.pengnini.app.ui.common.formatResolution
 import kotlinx.coroutines.delay
@@ -184,10 +187,16 @@ fun PlayerScreen(
     var sessionSpeed by remember(v.uri) { mutableStateOf(speedX10 / 10f) }
 
     val exoPlayer = remember(v.uri) {
-        ExoPlayer.Builder(context).build().also {
+        val builder = ExoPlayer.Builder(context)
+        if (SmbManager.isSmb(v.uri)) {
+            builder.setMediaSourceFactory(
+                DefaultMediaSourceFactory(SmbDataSource.Factory(Container.smbManager)),
+            )
+        }
+        builder.build().also {
             it.setMediaItem(buildMediaItem(v, subtitleAuto))
             it.prepare()
-            if (v.lastPositionMs > 0 && v.lastPositionMs < v.durationMs - 5000) {
+            if (v.lastPositionMs > 0 && (v.durationMs <= 0 || v.lastPositionMs < v.durationMs - 5000)) {
                 it.seekTo(v.lastPositionMs)
             }
             it.playWhenReady = true
@@ -226,7 +235,8 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(v.uri) {
-        if (v.funscriptUri != null && Container.handyRepo.hasKey) vm.startSync(sessionSpeed)
+        // 스크립트 있으면 그걸로, 없으면 기본 스크립트(설정 on 시) — 판단은 startSync 내부에서.
+        if (Container.handyRepo.hasKey) vm.startSync(sessionSpeed)
     }
 
     LaunchedEffect(syncState) {
@@ -260,6 +270,7 @@ fun PlayerScreen(
     }
 
     DisposableEffect(exoPlayer) {
+        var mediaInfoSaved = false
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 if (isPlaying) vm.onPlay(exoPlayer.currentPosition)
@@ -278,13 +289,22 @@ fun PlayerScreen(
             }
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) vm.resetPosition()
+                if (playbackState == Player.STATE_READY && !mediaInfoSaved && v.durationMs <= 0L) {
+                    mediaInfoSaved = true
+                    vm.saveMediaInfo(
+                        v.uri,
+                        exoPlayer.duration,
+                        exoPlayer.videoSize.width,
+                        exoPlayer.videoSize.height,
+                    )
+                }
             }
         }
         exoPlayer.addListener(listener)
         onDispose {
             val pos = exoPlayer.currentPosition
-            if (pos > 0 && pos < v.durationMs - 5000) vm.savePosition(pos)
-            else if (pos >= v.durationMs - 5000) vm.resetPosition()
+            if (pos > 0 && (v.durationMs <= 0 || pos < v.durationMs - 5000)) vm.savePosition(pos)
+            else if (v.durationMs > 0 && pos >= v.durationMs - 5000) vm.resetPosition()
             exoPlayer.removeListener(listener)
             runCatching { exoPlayer.release() }
         }
@@ -331,7 +351,7 @@ fun PlayerScreen(
             val a = loopAMs
             val b = loopBMs
             val cur = exoPlayer.currentPosition
-            if (a != null && b != null && cur >= b) {
+            if (a != null && b != null && cur >= b && exoPlayer.isPlaying) {
                 exoPlayer.seekTo(a)
                 if (seekingPositionMs == null) positionMs = a
             } else if (seekingPositionMs == null) {
@@ -375,7 +395,8 @@ fun PlayerScreen(
             enableZoom = gZoom,
             onToggleControls = { controlsVisible = !controlsVisible },
             onSeekRelative = { delta ->
-                val newPos = (exoPlayer.currentPosition + delta).coerceIn(0L, v.durationMs)
+                val maxPos = exoPlayer.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
+                val newPos = (exoPlayer.currentPosition + delta).coerceIn(0L, maxPos)
                 exoPlayer.seekTo(newPos)
                 positionMs = newPos
                 controlsVisible = true
@@ -424,7 +445,7 @@ fun PlayerScreen(
                 onSpeedClick = { speedMenuOpen = !speedMenuOpen; controlsVisible = true },
                 onSpeedDismiss = { speedMenuOpen = false },
                 onSpeedSelect = { sessionSpeed = it; speedMenuOpen = false },
-                scriptIconVisible = v.funscriptUri != null,
+                scriptIconVisible = v.funscriptUri != null || syncState !is HandySyncState.Idle,
                 scriptPopupOpen = scriptPopupOpen,
                 onScriptClick = { scriptPopupOpen = !scriptPopupOpen; controlsVisible = true },
                 onScriptDismiss = { scriptPopupOpen = false },
@@ -676,7 +697,7 @@ private fun TopBar(
                 tint = Color.White,
             )
         }
-        if (video.funscriptUri != null) {
+        if (video.funscriptUri != null || syncState !is HandySyncState.Idle) {
             SyncStateBadge(syncState, onRetry = onRetrySync)
         }
     }

@@ -29,7 +29,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -42,10 +43,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import coil.request.videoFrameMillis
 import com.pengnini.app.data.db.VideoEntity
 import com.pengnini.app.data.db.displayTitle
+import com.pengnini.app.data.media.ThumbnailCache
 import com.pengnini.app.ui.common.formatDuration
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -55,15 +59,6 @@ fun VideoGridCard(
     onLongClick: () -> Unit,
     onFavoriteToggle: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val request = remember(video.uri) {
-        ImageRequest.Builder(context)
-            .data(android.net.Uri.parse(video.uri))
-            .videoFrameMillis(2_000L)
-            .crossfade(true)
-            .build()
-    }
-
     OutlinedCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -77,10 +72,9 @@ fun VideoGridCard(
                 .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
-            AsyncImage(
-                model = request,
+            VideoThumbnail(
+                uri = video.uri,
                 contentDescription = video.displayTitle,
-                contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
             Text(
@@ -171,14 +165,6 @@ fun VideoListRow(
     onLongClick: () -> Unit,
     onFavoriteToggle: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val request = remember(video.uri) {
-        ImageRequest.Builder(context)
-            .data(android.net.Uri.parse(video.uri))
-            .videoFrameMillis(2_000L)
-            .build()
-    }
-
     OutlinedCard(
         modifier = Modifier
             .fillMaxWidth()
@@ -196,10 +182,9 @@ fun VideoListRow(
                     .clip(RoundedCornerShape(8.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
             ) {
-                AsyncImage(
-                    model = request,
+                VideoThumbnail(
+                    uri = video.uri,
                     contentDescription = video.displayTitle,
-                    contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
                 Text(
@@ -270,4 +255,28 @@ fun VideoListRow(
             )
         }
     }
+}
+
+/**
+ * 영상 썸네일. 1/3 지점 프레임을 cacheDir에 1회 생성·재사용(로컬·SMB 공통).
+ * 준비 전엔 빈 상태(부모 배경이 플레이스홀더 역할).
+ */
+@Composable
+private fun VideoThumbnail(
+    uri: String,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val thumb by produceState<File?>(null, uri) {
+        value = withContext(Dispatchers.IO) {
+            runCatching { ThumbnailCache.get(context, uri) }.getOrNull()
+        }
+    }
+    AsyncImage(
+        model = ImageRequest.Builder(context).data(thumb).crossfade(true).build(),
+        contentDescription = contentDescription,
+        contentScale = ContentScale.Crop,
+        modifier = modifier,
+    )
 }
