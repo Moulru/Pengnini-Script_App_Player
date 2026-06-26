@@ -10,13 +10,16 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import com.pengnini.app.Container
 import com.pengnini.app.data.secure.LockPattern
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.hypot
 
 private val ScreenBg = Color(0xFF0F0F14)
@@ -45,8 +49,11 @@ private val DotError = Color(0xFFE0506C)
 @Composable
 fun LockScreen(onUnlocked: () -> Unit) {
     val store = remember { Container.lockStore }
+    val scope = rememberCoroutineScope()
     var error by remember { mutableStateOf(false) }
     var attemptVersion by remember { mutableStateOf(0) }
+    var failCount by remember { mutableStateOf(0) }
+    var showResetConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(error) {
         if (error) {
@@ -82,7 +89,39 @@ fun LockScreen(onUnlocked: () -> Unit) {
                     onUnlocked()
                 } else {
                     error = true
+                    failCount++
                 }
+            },
+        )
+        // 5회 이상 실패 시에만 복구 선택지 노출(패턴 시도는 계속 가능).
+        if (failCount >= 5) {
+            Spacer(Modifier.height(24.dp))
+            TextButton(onClick = { showResetConfirm = true }) {
+                Text("패턴을 잊으셨나요? 라이브러리 초기화 후 해제", color = DotActive)
+            }
+        }
+    }
+
+    if (showResetConfirm) {
+        AlertDialog(
+            onDismissRequest = { showResetConfirm = false },
+            title = { Text("패턴 초기화") },
+            text = {
+                Text("라이브러리(폴더·평점·태그 등)를 모두 삭제하고 잠금을 해제합니다. 영상 파일 자체는 지워지지 않습니다.")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        runCatching { Container.libraryRepo.clearLibrary() }
+                        runCatching { store.clear() }
+                        runCatching { Container.prefs.setAppLockEnabled(false) }
+                        showResetConfirm = false
+                        onUnlocked()
+                    }
+                }) { Text("초기화하고 해제", color = DotError) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetConfirm = false }) { Text("취소") }
             },
         )
     }
@@ -124,6 +163,14 @@ fun PatternLock(
         }
         return null
     }
+    // 두 점을 잇는 직선이 격자 위 점을 정확히 가로지르면 그 중간 점 인덱스, 아니면 null.
+    fun midpoint(a: Int, b: Int): Int? {
+        val ra = a / 3; val ca = a % 3
+        val rb = b / 3; val cb = b % 3
+        if ((ra + rb) % 2 != 0 || (ca + cb) % 2 != 0) return null
+        val mid = ((ra + rb) / 2) * 3 + (ca + cb) / 2
+        return if (mid != a && mid != b) mid else null
+    }
 
     Box(
         modifier = Modifier
@@ -143,6 +190,15 @@ fun PatternLock(
                         dragPos = change.position
                         hit(change.position)?.let { idx ->
                             if (idx !in selected) {
+                                // 직전 점과의 직선이 가로지르는 중간 점을 먼저 자동 포함(표준 패턴 동작)
+                                if (selected.isNotEmpty()) {
+                                    midpoint(selected.last(), idx)?.let { mid ->
+                                        if (mid !in selected) {
+                                            selected.add(mid)
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        }
+                                    }
+                                }
                                 selected.add(idx)
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             }

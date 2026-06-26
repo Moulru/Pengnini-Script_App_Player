@@ -58,6 +58,8 @@ class PrefsStore(context: Context) {
 
     // Security
     val appLockEnabled: Flow<Boolean> = ds.data.map { it[KEY_APP_LOCK_ENABLED] ?: false }
+    /** 패턴 판정 로직(중간점 자동 포함) 변경에 따른 기존 패턴 1회 초기화 완료 여부. */
+    val patternResetDone: Flow<Boolean> = ds.data.map { it[KEY_PATTERN_RESET_DONE] ?: false }
 
     // ───── Setters ─────
 
@@ -101,6 +103,7 @@ class PrefsStore(context: Context) {
     suspend fun setDefaultScriptCpm(v: Int) { ds.edit { it[KEY_DEFAULT_SCRIPT_CPM] = v.coerceIn(30, 200) } }
 
     suspend fun setAppLockEnabled(v: Boolean) { ds.edit { it[KEY_APP_LOCK_ENABLED] = v } }
+    suspend fun setPatternResetDone(v: Boolean) { ds.edit { it[KEY_PATTERN_RESET_DONE] = v } }
 
     private companion object {
         val KEY_VIEW_MODE = stringPreferencesKey("view_mode")
@@ -128,5 +131,6 @@ class PrefsStore(context: Context) {
         val KEY_DEFAULT_SCRIPT_ENABLED = booleanPreferencesKey("default_script_enabled")
         val KEY_DEFAULT_SCRIPT_CPM = intPreferencesKey("default_script_cpm")
         val KEY_APP_LOCK_ENABLED = booleanPreferencesKey("app_lock_enabled")
+        val KEY_PATTERN_RESET_DONE = booleanPreferencesKey("pattern_reset_done_intermediate")
     }
 }

@@ -165,9 +165,12 @@ fun LibraryScreen(
     }
 
     val activeFilterCount = countActiveFilters(filter)
-    val displayedVideos = remember(videos, selectedTab) {
-        videos.filter { (selectedTab == 0) != SmbManager.isSmb(it.uri) }
+    // 탭0 = 로컬, 탭1 = 네트워크(SMB). 현재 탭에 해당하는 영상/폴더만 보여준다.
+    val isNetworkTab = selectedTab == 1
+    val displayedVideos = remember(videos, isNetworkTab) {
+        videos.filter { SmbManager.isSmb(it.uri) == isNetworkTab }
     }
+    val hasFoldersForTab = folders.any { SmbManager.isSmb(it.uri) == isNetworkTab }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHost) },
@@ -279,9 +282,9 @@ fun LibraryScreen(
                         .fillMaxSize()
                         .background(MaterialTheme.colorScheme.background),
                 )
-                displayedVideos.isEmpty() && selectedTab == 1 ->
+                displayedVideos.isEmpty() && isNetworkTab ->
                     EmptyNetworkTab(modifier = Modifier.fillMaxSize(), onAdd = { smbDialogOpen = true })
-                displayedVideos.isEmpty() && folders.none { SmbManager.isSmb(it.uri) == (selectedTab == 1) } ->
+                displayedVideos.isEmpty() && !hasFoldersForTab ->
                     EmptyLibrary(modifier = Modifier.fillMaxSize(), onAdd = { folderDialogOpen = true })
                 displayedVideos.isEmpty() -> EmptyAfterFolder(modifier = Modifier.fillMaxSize())
                 viewMode == LibraryViewMode.GRID -> LazyVerticalGrid(

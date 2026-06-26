@@ -4,8 +4,10 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
+import androidx.room.withTransaction
 import com.pengnini.app.data.db.FolderDao
 import com.pengnini.app.data.db.FolderEntity
+import com.pengnini.app.data.db.PengniniDatabase
 import com.pengnini.app.data.db.VideoDao
 import com.pengnini.app.data.db.VideoEntity
 import com.pengnini.app.data.db.VideoUserDataDao
@@ -27,6 +29,7 @@ import java.util.concurrent.ConcurrentHashMap
 enum class LibraryViewMode { GRID, LIST }
 
 class LibraryRepository(
+    private val db: PengniniDatabase,
     private val folderDao: FolderDao,
     private val videoDao: VideoDao,
     private val userDataDao: VideoUserDataDao,
@@ -127,6 +130,8 @@ class LibraryRepository(
                     tags = ud.tags,
                     lastPositionMs = ud.lastPositionMs,
                     customTitle = ud.customTitle,
+                    // 자동 매칭(fresh)·기존 행(prior)이 없으면 영속 백업한 수동 연결을 복원
+                    funscriptUri = base.funscriptUri ?: ud.funscriptUri,
                 )
             } else {
                 val side = sidecar[base.title]
@@ -156,45 +161,60 @@ class LibraryRepository(
     }
 
     suspend fun setRating(uri: String, rating: Int) {
-        videoDao.setRating(uri, rating)
-        userDataDao.ensure(VideoUserDataEntity(uri))
-        userDataDao.updateRating(uri, rating)
+        db.withTransaction {
+            videoDao.setRating(uri, rating)
+            userDataDao.ensure(VideoUserDataEntity(uri))
+            userDataDao.updateRating(uri, rating)
+        }
         scheduleSidecarFlush(uri)
     }
 
     suspend fun setFavorite(uri: String, favorite: Boolean) {
-        videoDao.setFavorite(uri, favorite)
-        userDataDao.ensure(VideoUserDataEntity(uri))
-        userDataDao.updateFavorite(uri, favorite)
+        db.withTransaction {
+            videoDao.setFavorite(uri, favorite)
+            userDataDao.ensure(VideoUserDataEntity(uri))
+            userDataDao.updateFavorite(uri, favorite)
+        }
         scheduleSidecarFlush(uri)
     }
 
     suspend fun setTags(uri: String, tags: String) {
-        videoDao.setTags(uri, tags)
-        userDataDao.ensure(VideoUserDataEntity(uri))
-        userDataDao.updateTags(uri, tags)
+        db.withTransaction {
+            videoDao.setTags(uri, tags)
+            userDataDao.ensure(VideoUserDataEntity(uri))
+            userDataDao.updateTags(uri, tags)
+        }
         scheduleSidecarFlush(uri)
     }
 
     suspend fun setLastPosition(uri: String, positionMs: Long) {
-        videoDao.setLastPosition(uri, positionMs)
-        userDataDao.ensure(VideoUserDataEntity(uri))
-        userDataDao.updateLastPosition(uri, positionMs)
+        db.withTransaction {
+            videoDao.setLastPosition(uri, positionMs)
+            userDataDao.ensure(VideoUserDataEntity(uri))
+            userDataDao.updateLastPosition(uri, positionMs)
+        }
         // 위치는 재생 중 5초마다 갱신되어 사이드카 플러시는 생략(DB에만 보존)
     }
 
     /** 앱 내 표시이름 변경(실제 파일은 그대로). 빈 문자열이면 null로 저장해 원래 파일명 사용. */
     suspend fun setCustomTitle(uri: String, title: String?) {
         val v = title?.trim()?.takeIf { it.isNotBlank() }
-        videoDao.setCustomTitle(uri, v)
-        userDataDao.ensure(VideoUserDataEntity(uri))
-        userDataDao.updateCustomTitle(uri, v)
+        db.withTransaction {
+            videoDao.setCustomTitle(uri, v)
+            userDataDao.ensure(VideoUserDataEntity(uri))
+            userDataDao.updateCustomTitle(uri, v)
+        }
         scheduleSidecarFlush(uri)
     }
 
     /** 스크립트 수동 연결/해제. scriptUri는 SAF로 영구 read 권한을 미리 확보해 둔다. */
     suspend fun setFunscript(uri: String, scriptUri: String?) {
-        videoDao.setFunscript(uri, scriptUri)
+        // videos(표시용) + user_data(영속 백업)에 함께 기록 → 폴더 재등록 시 수동 연결 복원
+        db.withTransaction {
+            videoDao.setFunscript(uri, scriptUri)
+            userDataDao.ensure(VideoUserDataEntity(uri))
+            userDataDao.updateFunscript(uri, scriptUri)
+        }
     }
 
     /** 재생 중 확보된 길이·해상도를 DB에 기록(스캔 시 못 구한 SMB 영상 보완). */
@@ -243,12 +263,14 @@ class LibraryRepository(
     /** rating/favorite/tags 변경 후 해당 폴더 사이드카를 디바운스 기록(백그라운드, best-effort). */
     private fun scheduleSidecarFlush(uri: String) {
         flushJobs.remove(uri)?.cancel()
-        flushJobs[uri] = ioScope.launch {
+        val job = ioScope.launch {
             delay(SIDECAR_FLUSH_DELAY_MS)
             val folderUri = videoDao.get(uri)?.folderUri ?: return@launch
             flushSidecar(folderUri)
-            flushJobs.remove(uri)
         }
+        flushJobs[uri] = job
+        // 완료 시 자기 자신일 때만 제거 → 디바운스 재등록된 새 job을 지우지 않도록
+        job.invokeOnCompletion { flushJobs.remove(uri, job) }
     }
 
     /** 한 폴더의 모든 영상 사용자 데이터를 사이드카에 기록(기본값만 있는 영상은 제외). */

@@ -47,4 +47,6 @@ data class VideoUserDataEntity(
     val tags: String = "",
     val lastPositionMs: Long = 0L,
     val customTitle: String? = null,
+    /** 수동 연결한 스크립트 URI. 폴더 제거→재등록 시 복원용(자동 매칭은 스캔이 다시 채움). */
+    val funscriptUri: String? = null,
 )

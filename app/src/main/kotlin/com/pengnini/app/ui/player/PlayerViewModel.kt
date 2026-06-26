@@ -255,8 +255,10 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
         val offset = syncOffsetMs.value
         // 스크립트에 배속을 구웠으므로 디바이스로 보내는 위치도 1/speed로 환산
         val adjustedPos = ((positionMs + offset).coerceAtLeast(0) / playbackSpeed).toLong()
+        // 위치(positionMs)와 같은 시점의 서버시각을 launch 밖에서 캡처 → 디스패치 지연만큼 어긋나지 않게
+        val startServerTime = System.currentTimeMillis() + serverOffset
         viewModelScope.launch {
-            handyRepo.play(System.currentTimeMillis() + serverOffset, adjustedPos)
+            handyRepo.play(startServerTime, adjustedPos)
         }
     }
 
@@ -270,8 +272,9 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
         if (wasPlaying) {
             val offset = syncOffsetMs.value
             val adjustedPos = ((newPositionMs + offset).coerceAtLeast(0) / playbackSpeed).toLong()
+            val startServerTime = System.currentTimeMillis() + serverOffset
             viewModelScope.launch {
-                handyRepo.play(System.currentTimeMillis() + serverOffset, adjustedPos)
+                handyRepo.play(startServerTime, adjustedPos)
             }
         }
     }

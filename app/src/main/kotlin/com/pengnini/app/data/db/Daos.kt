@@ -84,6 +84,9 @@ interface VideoUserDataDao {
     @Query("UPDATE video_user_data SET customTitle = :title WHERE uri = :uri")
     suspend fun updateCustomTitle(uri: String, title: String?)
 
+    @Query("UPDATE video_user_data SET funscriptUri = :scriptUri WHERE uri = :uri")
+    suspend fun updateFunscript(uri: String, scriptUri: String?)
+
     @Query("DELETE FROM video_user_data WHERE uri = :uri")
     suspend fun delete(uri: String)
 
