@@ -28,6 +28,11 @@ appicon.png
 *.apk
 *.aab
 
+# ─────────────── Signing (절대 커밋 금지) ───────────────
+keystore.properties
+*.jks
+*.keystore
+
 # ─────────────── 개발 문서 (외부 배포 불필요) ───────────────
 CLAUDE.md
 CLAUDE_CONTEXT.md
