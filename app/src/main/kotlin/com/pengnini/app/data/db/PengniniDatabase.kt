@@ -7,7 +7,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [VideoEntity::class, FolderEntity::class, VideoUserDataEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class PengniniDatabase : RoomDatabase() {
@@ -48,5 +48,12 @@ val MIGRATION_3_4: Migration = object : Migration(3, 4) {
         // 표시이름 override 컬럼 추가(nullable TEXT — Room의 String? 스키마와 일치, DEFAULT 없음)
         db.execSQL("ALTER TABLE videos ADD COLUMN customTitle TEXT")
         db.execSQL("ALTER TABLE video_user_data ADD COLUMN customTitle TEXT")
+    }
+}
+
+val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // 수동 연결 스크립트를 user_data에도 보존(폴더 재등록 복원용). nullable TEXT, DEFAULT 없음.
+        db.execSQL("ALTER TABLE video_user_data ADD COLUMN funscriptUri TEXT")
     }
 }

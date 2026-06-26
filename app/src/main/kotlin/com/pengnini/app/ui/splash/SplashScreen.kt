@@ -43,6 +43,13 @@ fun SplashScreen(
     var visible by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {
         delay(1500)
+        // 패턴 판정 로직 변경(중간점 자동 포함)으로 이전 패턴이 안 맞을 수 있어 1회 초기화 후 잠금 해제.
+        // 실패 시 done=true로 간주해 반복 초기화를 막는다.
+        if (!runCatching { Container.prefs.patternResetDone.first() }.getOrDefault(true)) {
+            runCatching { Container.lockStore.clear() }
+            runCatching { Container.prefs.setAppLockEnabled(false) }
+            runCatching { Container.prefs.setPatternResetDone(true) }
+        }
         val enabled = runCatching { Container.prefs.appLockEnabled.first() }.getOrDefault(false)
         val hasPattern = runCatching { Container.lockStore.hasPattern() }.getOrDefault(false)
         val next = if (enabled && hasPattern) lockRoute else libraryRoute

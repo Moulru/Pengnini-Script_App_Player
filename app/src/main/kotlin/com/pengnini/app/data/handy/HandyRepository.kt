@@ -20,7 +20,12 @@ class HandyRepository(private val keyStore: HandyKeyStore) {
     private val contentType = "application/json".toMediaType()
 
     private val okHttp = OkHttpClient.Builder()
-        .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
+        .addInterceptor(
+            HttpLoggingInterceptor().apply {
+                level = HttpLoggingInterceptor.Level.BASIC
+                redactHeader("X-Connection-Key") // 로그 레벨을 올려도 키가 평문 노출되지 않게
+            },
+        )
         .addInterceptor { chain ->
             val key = keyStore.read()
             val req = if (!key.isNullOrBlank()) {
@@ -109,7 +114,7 @@ class HandyRepository(private val keyStore: HandyKeyStore) {
     }
 
     suspend fun stop(): Result<Unit> = runCatching {
-        api.hsspStop()
+        api.hsspStop().orThrow()
         Unit
     }
 

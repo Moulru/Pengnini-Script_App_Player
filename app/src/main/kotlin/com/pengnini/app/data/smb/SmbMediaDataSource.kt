@@ -14,7 +14,9 @@ class SmbMediaDataSource(smb: SmbManager, fileUri: String) : MediaDataSource() {
 
     override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
         if (position >= sizeBytes) return -1
-        return file.read(buffer, position, offset, size)
+        // 파일 끝을 넘겨 요청하면 일부 서버가 오동작 → 남은 바이트로 클램프
+        val toRead = minOf(size.toLong(), sizeBytes - position).toInt()
+        return file.read(buffer, position, offset, toRead)
     }
 
     override fun getSize(): Long = sizeBytes
