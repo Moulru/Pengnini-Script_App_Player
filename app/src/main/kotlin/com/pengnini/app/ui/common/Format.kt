@@ -9,18 +9,6 @@ fun formatDuration(ms: Long): String {
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
-fun formatBytes(bytes: Long): String {
-    if (bytes <= 0) return "0 B"
-    val units = arrayOf("B", "KB", "MB", "GB", "TB")
-    var v = bytes.toDouble()
-    var u = 0
-    while (v >= 1024 && u < units.lastIndex) {
-        v /= 1024
-        u++
-    }
-    return "%.1f %s".format(v, units[u])
-}
-
 fun formatResolution(w: Int, h: Int): String? {
     if (w <= 0 || h <= 0) return null
     val tag = when {

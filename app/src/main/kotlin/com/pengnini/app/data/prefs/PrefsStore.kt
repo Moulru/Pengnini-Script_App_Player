@@ -44,7 +44,7 @@ class PrefsStore(context: Context) {
     val gestureVolume: Flow<Boolean> = ds.data.map { it[KEY_GESTURE_VOLUME] ?: true }
     val gestureZoom: Flow<Boolean> = ds.data.map { it[KEY_GESTURE_ZOOM] ?: true }
 
-    // Handy
+    // 기기 동기화
     val syncOffsetMs: Flow<Int> = ds.data.map { it[KEY_SYNC_OFFSET] ?: 0 }
     val strokeMin: Flow<Int> = ds.data.map { it[KEY_STROKE_MIN] ?: 0 }
     val strokeMax: Flow<Int> = ds.data.map { it[KEY_STROKE_MAX] ?: 100 }

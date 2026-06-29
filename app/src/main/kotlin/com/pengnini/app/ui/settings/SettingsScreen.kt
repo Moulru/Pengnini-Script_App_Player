@@ -65,12 +65,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pengnini.app.BuildConfig
 import com.pengnini.app.Container
 import com.pengnini.app.data.handy.HandyStatus
 import com.pengnini.app.data.media.ThumbnailCache
 import com.pengnini.app.data.secure.HandyKeyStore
 import com.pengnini.app.data.secure.LockPattern
 import com.pengnini.app.ui.lock.PatternLock
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -177,7 +179,7 @@ fun SettingsCategoryScreen(
 }
 
 // ─────────────────────────────────────────────────────────────
-// Handy Connect
+// 기기 연결
 // ─────────────────────────────────────────────────────────────
 
 @Composable
@@ -301,7 +303,6 @@ private fun HandyConnectContent() {
             title = "기본 오프셋",
             initial = offsetMs,
             valueRange = -200..200,
-            step = 1,
             formatter = { "${if (it > 0) "+" else ""}$it ms" },
             onDismiss = { offsetDialogOpen = false },
             onConfirm = {
@@ -385,13 +386,13 @@ private fun DefaultScriptSpeedRow(cpm: Int, onChange: (Int) -> Unit) {
     var local by remember(cpm) { mutableStateOf(cpm.toFloat()) }
     Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) {
         Text(
-            "왕복 속도: ${Math.round(local)}회/분",
+            "왕복 속도: ${local.roundToInt()}회/분",
             style = MaterialTheme.typography.bodyMedium,
         )
         Slider(
             value = local,
             onValueChange = { local = it },
-            onValueChangeFinished = { onChange(Math.round(local)) },
+            onValueChangeFinished = { onChange(local.roundToInt()) },
             valueRange = 30f..200f,
             steps = 16, // 10단위 스냅 (30, 40, …, 200)
         )
@@ -474,7 +475,6 @@ private fun PlaybackContent() {
             title = "기본 재생 속도",
             initial = speedX10,
             valueRange = 5..20,
-            step = 1,
             formatter = { String.format("%.2f×", it / 10.0) },
             onDismiss = { speedDialogOpen = false },
             onConfirm = {
@@ -790,7 +790,7 @@ private fun SystemContent() {
             )
             ListItem(
                 headlineContent = { Text("앱 버전") },
-                supportingContent = { Text("Pengnini / 1.1.1") },
+                supportingContent = { Text("Pengnini / ${BuildConfig.VERSION_NAME}") },
                 leadingContent = { Icon(Icons.Outlined.Info, null) },
             )
         }
@@ -888,14 +888,12 @@ private fun SliderDialog(
     title: String,
     initial: Int,
     valueRange: IntRange,
-    step: Int = 1,
     formatter: (Int) -> String = { it.toString() },
     onDismiss: () -> Unit,
     onConfirm: (Int) -> Unit,
 ) {
     var value by remember { mutableStateOf(initial.toFloat()) }
-    val span = valueRange.last - valueRange.first
-    val steps = if (step > 0) (span / step - 1).coerceAtLeast(0) else 0
+    val steps = (valueRange.last - valueRange.first - 1).coerceAtLeast(0)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },

@@ -23,8 +23,8 @@ android {
         applicationId = "com.pengnini.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "1.1.2"
+        versionCode = 7
+        versionName = "1.1.3"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -59,7 +59,10 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     sourceSets {
         getByName("main") {
             kotlin.srcDirs("src/main/kotlin")

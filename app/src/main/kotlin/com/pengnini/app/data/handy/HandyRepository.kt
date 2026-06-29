@@ -64,11 +64,6 @@ class HandyRepository(private val keyStore: HandyKeyStore) {
         MessageDigest.getInstance("SHA-256").digest(bytes)
             .joinToString("") { "%02x".format(it.toInt() and 0xFF) }
 
-    suspend fun checkConnected(): Result<Boolean> = runCatching {
-        if (!hasKey) return Result.failure(IllegalStateException("Connection Key가 등록되지 않았습니다"))
-        api.getConnected().connected
-    }
-
     suspend fun fetchStatus(): Result<HandyStatus> = runCatching {
         val connected = api.getConnected().connected
         val battery = runCatching { api.getBattery().level }.getOrNull()
@@ -102,7 +97,8 @@ class HandyRepository(private val keyStore: HandyKeyStore) {
     }
 
     suspend fun setupHssp(url: String, sha256: String? = null): Result<Unit> = runCatching {
-        runCatching { api.setMode(ModeBody(1)) }
+        // 동기 모드(HSSP) 전환 실패를 무시하면 스크립트가 동작하지 않으므로 응답 검사.
+        api.setMode(ModeBody(1)).orThrow()
         // sha256 전달 시 디바이스 캐시에 있으면 재다운로드 생략
         api.hsspSetup(HsspSetupBody(url, sha256)).orThrow()
         Unit

@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import android.view.LayoutInflater
+import android.view.WindowManager
+import kotlin.math.roundToInt
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -103,14 +105,9 @@ private val SpeedOptions = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f)
 private const val MIN_ZOOM = 0.5f
 private const val MAX_ZOOM = 4.0f
 
-private fun formatSpeed(s: Float): String {
-    val rounded = (s * 100).toInt() / 100f
-    return if (rounded * 10f == (rounded * 10f).toInt().toFloat()) {
-        "%.1f×".format(rounded)
-    } else {
-        "%.2f×".format(rounded)
-    }
-}
+private fun formatSpeed(s: Float): String =
+    // 소수 둘째 자리가 0이면 1자리(1.5×), 아니면 2자리(0.75×)로 표시
+    if ((s * 100).roundToInt() % 10 == 0) "%.1f×".format(s) else "%.2f×".format(s)
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -157,6 +154,12 @@ fun PlayerScreen(
         onDispose {
             controller?.show(WindowInsetsCompat.Type.systemBars())
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            // 플레이어를 떠나면 창 밝기 오버라이드 해제 → 다른 화면은 기기 밝기를 따른다.
+            activity?.window?.let { w ->
+                val lp = w.attributes
+                lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                w.attributes = lp
+            }
         }
     }
 
@@ -207,7 +210,7 @@ fun PlayerScreen(
 
     LaunchedEffect(sessionSpeed) {
         exoPlayer.playbackParameters = PlaybackParameters(sessionSpeed)
-        // 배속을 스크립트에 구워 재업로드 (이미 동기화된 경우에만 resync 발생)
+        // 배속을 스크립트에 반영해 재업로드 (이미 동기화된 경우에만 resync 발생)
         vm.setPlaybackSpeed(sessionSpeed)
     }
     LaunchedEffect(loop) {
@@ -245,7 +248,7 @@ fun PlayerScreen(
         }
     }
 
-    // 스크립트 오프셋 변경 → 200ms debounce 후 재생 중이면 Handy 재시작
+    // 스크립트 오프셋 변경 → 200ms debounce 후 재생 중이면 기기 재시작
     var offsetInited by remember { mutableStateOf(false) }
     LaunchedEffect(syncOffsetMs) {
         if (!offsetInited) {
@@ -258,7 +261,7 @@ fun PlayerScreen(
         }
     }
 
-    // 배속은 스크립트에 구워 업로드하므로(setPlaybackSpeed→resync) 주기적 재전송이 필요 없음.
+    // 배속은 스크립트에 반영해 업로드하므로(setPlaybackSpeed→resync) 주기적 재전송이 필요 없음.
 
     LaunchedEffect(exoPlayer) {
         while (true) {
@@ -714,7 +717,7 @@ private fun ScriptQuickslotPopup(
 ) {
     // 드래그 중에는 로컬 상태만 갱신(디바이스 명령 전송 안 함).
     // 팝업이 사라질 때(바깥 탭·뒤로·아이콘 재탭 등 모든 경로) onDispose에서 변경분만 1회 커밋
-    // → Handy 동기화 폭주 방지.
+    // → 기기 동기화 폭주 방지.
     var localOffset by remember { mutableStateOf(offsetMs) }
     var localRange by remember { mutableStateOf(strokeMin.toFloat()..strokeMax.toFloat()) }
     val initialOffset = remember { offsetMs }

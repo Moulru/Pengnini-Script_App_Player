@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.media.AudioManager
+import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -112,7 +113,9 @@ fun GestureOverlay(
                         dragRegion = when {
                             fraction < 0.4f && enableBrightness -> {
                                 val cur = activity?.window?.attributes?.screenBrightness
-                                brightness = cur?.takeIf { it in 0f..1f } ?: 0.5f
+                                // 이 화면에서 이미 조정한 값이 있으면 그걸, 없으면 현재 기기 밝기를 시작점으로.
+                                brightness = cur?.takeIf { it in 0f..1f }
+                                    ?: systemBrightness(context) ?: 0.5f
                                 brightnessVersion++
                                 DragRegion.LEFT
                             }
@@ -183,6 +186,11 @@ private fun BoxScope.IndicatorChip(alignment: Alignment, label: String) {
         Text(label, color = Color.White, fontSize = 14.sp)
     }
 }
+
+/** 현재 기기(시스템) 밝기를 0..1로 읽는다. 읽기는 권한 불필요. 실패 시 null. */
+private fun systemBrightness(context: Context): Float? = runCatching {
+    Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS) / 255f
+}.getOrNull()?.coerceIn(0f, 1f)
 
 internal fun Context.findActivity(): Activity? {
     var ctx: Context = this

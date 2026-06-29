@@ -61,10 +61,14 @@ class PlaybackService : Service() {
 
         fun start(ctx: Context) {
             val intent = Intent(ctx, PlaybackService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                ctx.startForegroundService(intent)
-            } else {
-                ctx.startService(intent)
+            // Android 12+는 백그라운드에서의 foreground service 시작을 차단할 수 있음
+            // (ForegroundServiceStartNotAllowedException) → 크래시 대신 무시.
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    ctx.startForegroundService(intent)
+                } else {
+                    ctx.startService(intent)
+                }
             }
         }
 
