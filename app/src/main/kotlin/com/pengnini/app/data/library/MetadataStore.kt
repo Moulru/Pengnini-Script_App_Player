@@ -19,7 +19,7 @@ import kotlinx.serialization.json.putJsonObject
  * DB(video_user_data)가 원본이고 사이드카는 이식·영속용 best-effort 백업이다.
  * - 읽기 실패/JSON 손상: 무시하고 빈 맵 반환(앱은 DB로 동작).
  * - 쓰기: 임시파일에 먼저 쓴 뒤 교체. 읽기전용 폴더 등 실패는 조용히 무시(DB가 보존).
- * - 키는 영상 title(확장자 제외 파일명) — funscript 매칭과 동일하게 트리 내 고유 가정.
+ * - 키는 영상 title(확장자 제외 파일명) — 스크립트 매칭과 동일하게 트리 내 고유 가정.
  */
 class MetadataStore(private val context: Context) {
 

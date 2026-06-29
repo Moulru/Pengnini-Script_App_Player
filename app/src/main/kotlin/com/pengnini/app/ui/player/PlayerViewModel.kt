@@ -11,6 +11,8 @@ import com.pengnini.app.data.smb.SmbManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -35,6 +37,12 @@ sealed class HandySyncState {
     data object Preparing : HandySyncState()
     data object Ready : HandySyncState()
     data class Error(val message: String) : HandySyncState()
+}
+
+/** 기기로 보낼 재생 명령. 단일 통로로 직렬화해 순서 꼬임을 막는다. */
+private sealed interface DeviceCommand {
+    data class Play(val serverTime: Long, val startTimeMs: Long) : DeviceCommand
+    data object Stop : DeviceCommand
 }
 
 class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewModel(app) {
@@ -81,8 +89,6 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
     val strokeMax: StateFlow<Int> = prefs.strokeMax
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 100)
-    val scriptInvert: StateFlow<Boolean> = prefs.scriptInvert
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     private val _syncState = MutableStateFlow<HandySyncState>(HandySyncState.Idle)
     val syncState: StateFlow<HandySyncState> = _syncState
@@ -91,7 +97,29 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
     @Volatile private var syncInitialized: Boolean = false
     @Volatile private var playbackSpeed: Float = 1.0f
 
+    // 기기 명령 단일 통로(CONFLATED) — 빠른 시크/버퍼링으로 명령이 몰려도
+    // 항상 마지막 의도만 순서대로 전달돼 정지/재생이 뒤섞이지 않는다.
+    private val deviceCommands = Channel<DeviceCommand>(Channel.CONFLATED)
+
     init {
+        viewModelScope.launch {
+            for (cmd in deviceCommands) {
+                when (cmd) {
+                    // 일시적 네트워크 블립은 짧게 재시도해 자가회복, 계속 실패할 때만 오류 표시.
+                    is DeviceCommand.Play ->
+                        if (retryCommand { handyRepo.play(cmd.serverTime, cmd.startTimeMs) }) {
+                            // 일시 실패 후 다시 성공하면 오류 배지 자동 해제
+                            if (syncInitialized && _syncState.value is HandySyncState.Error) {
+                                _syncState.value = HandySyncState.Ready
+                            }
+                        } else {
+                            _syncState.value = HandySyncState.Error("기기 전송 실패")
+                        }
+                    // 정지는 조용히 재시도(실패해도 오류 배지는 띄우지 않음).
+                    DeviceCommand.Stop -> retryCommand { handyRepo.stop() }
+                }
+            }
+        }
         viewModelScope.launch {
             // alwaysStartFromBeginning ON이면 lastPositionMs를 0으로 덮어 ExoPlayer 초기 seekTo가 일어나지 않게 함.
             // DB의 실제 값은 손대지 않음(다음 정지 시 다시 갱신됨).
@@ -105,7 +133,7 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
                 _nextUri.value = list.getOrNull(idx + 1)
             }
         }
-        // syncState가 Ready로 전환되면 현재 stroke 범위를 Handy에 동기화
+        // syncState가 Ready로 전환되면 현재 세기 범위를 기기에 동기화
         viewModelScope.launch {
             syncState.collect { state ->
                 if (state is HandySyncState.Ready) {
@@ -113,7 +141,7 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
                 }
             }
         }
-        // 반전 설정 변경 시 funscript 재업로드.
+        // 반전 설정 변경 시 스크립트 재업로드.
         // prefs.scriptInvert를 직접 구독 — 첫 emit(저장된 현재 값)은 drop(1)으로 무시하고
         // 이후 사용자 토글에 의한 변경만 resync. (StateFlow는 stateIn 초기값 emit이 섞여 race 발생)
         viewModelScope.launch {
@@ -137,7 +165,7 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
                 val bytes = if (useDefault) {
                     val cpm = prefs.defaultScriptCpm.first()
                     val durMs = v.durationMs.takeIf { it > 0 } ?: 7_200_000L // 길이 미상(SMB 등) 시 2시간
-                    // 0↔99 단순 왕복 + 영상 배속 굽기. invert는 대칭이라 적용 불필요.
+                    // 0↔99 위치 반복 + 영상 배속 반영. 반전은 대칭이라 적용 불필요.
                     transformFunscript(generateDefaultScript(durMs, cpm), false, speed)
                 } else {
                     val rawBytes = withContext(Dispatchers.IO) {
@@ -175,7 +203,7 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
         }
     }
 
-    /** 스크립트 없는 영상용 기본 패턴: 0↔99 단순 왕복(cpm=분당 왕복). 스트로크 범위는 Handy /slide가 적용. */
+    /** 스크립트 없는 영상용 기본 패턴: 0↔99 위치 반복(cpm=분당 반복 수). 세기 범위는 기기의 /slide가 적용. */
     private fun generateDefaultScript(durationMs: Long, cpm: Int): ByteArray {
         val halfMs = (60000L / cpm.coerceIn(30, 200)) / 2 // 0→99 또는 99→0 한 구간
         val sb = StringBuilder("{\"actions\":[")
@@ -196,10 +224,10 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
         return sb.toString().toByteArray()
     }
 
-    /** 반전 설정 변경 시 호출. stop → reset → startSync 흐름으로 funscript 재업로드.
+    /** 반전 설정 변경 시 호출. stop → reset → startSync 흐름으로 스크립트 재업로드.
      *  PlayerScreen의 LaunchedEffect(syncState)가 Ready 감지 시 현재 위치에서 onPlay를 다시 트리거한다. */
     private fun resync() {
-        // funscript 유무와 무관 — 기본 스크립트도 배속 변경 시 재업로드해야 한다(판단은 startSync 내부).
+        // 스크립트 유무와 무관 — 기본 스크립트도 배속 변경 시 재업로드해야 한다(판단은 startSync 내부).
         if (_video.value == null || !handyRepo.hasKey) return
         viewModelScope.launch {
             runCatching { handyRepo.stop() }
@@ -209,7 +237,7 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
         }
     }
 
-    /** 재생 속도 변경 시 호출. 배속을 스크립트에 굽기 위해, 이미 업로드된 상태면 재업로드(resync). */
+    /** 재생 속도 변경 시 호출. 배속을 스크립트에 반영하기 위해, 이미 업로드된 상태면 재업로드(resync). */
     fun setPlaybackSpeed(speed: Float) {
         val s = speed.coerceIn(0.25f, 4f)
         if (s == playbackSpeed) return
@@ -217,9 +245,9 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
         if (syncInitialized) resync()
     }
 
-    /** funscript JSON 변환:
+    /** 스크립트 JSON 변환:
      *  - invert: pos → (99 - pos)
-     *  - speed≠1: at → (at / speed)로 스케일 → Handy가 1x로 재생해도 영상과 동기 유지(주기 재전송 불필요).
+     *  - speed≠1: at → (at / speed)로 스케일 → 기기가 1x로 재생해도 영상과 동기 유지(주기 재전송 불필요).
      *  파싱 실패 시 원본 반환. */
     private fun transformFunscript(bytes: ByteArray, invert: Boolean, speed: Float): ByteArray = try {
         if (!invert && speed == 1.0f) {
@@ -250,33 +278,39 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
         bytes
     }
 
+    // 스크립트 설정이 끝난 뒤(syncInitialized)면 Ready/Error 무관하게 명령을 보낸다.
+    // → 일시 실패로 Error가 돼도 다음 재생/시크에서 자동 재시도되어 스스로 회복.
     fun onPlay(positionMs: Long) {
-        if (_syncState.value !is HandySyncState.Ready) return
-        val offset = syncOffsetMs.value
-        // 스크립트에 배속을 구웠으므로 디바이스로 보내는 위치도 1/speed로 환산
-        val adjustedPos = ((positionMs + offset).coerceAtLeast(0) / playbackSpeed).toLong()
-        // 위치(positionMs)와 같은 시점의 서버시각을 launch 밖에서 캡처 → 디스패치 지연만큼 어긋나지 않게
-        val startServerTime = System.currentTimeMillis() + serverOffset
-        viewModelScope.launch {
-            handyRepo.play(startServerTime, adjustedPos)
-        }
+        if (!syncInitialized) return
+        deviceCommands.trySend(playCommand(positionMs))
     }
 
     fun onPause() {
-        if (_syncState.value !is HandySyncState.Ready) return
-        viewModelScope.launch { handyRepo.stop() }
+        if (!syncInitialized) return
+        deviceCommands.trySend(DeviceCommand.Stop)
     }
 
     fun onSeek(newPositionMs: Long, wasPlaying: Boolean) {
-        if (_syncState.value !is HandySyncState.Ready) return
-        if (wasPlaying) {
-            val offset = syncOffsetMs.value
-            val adjustedPos = ((newPositionMs + offset).coerceAtLeast(0) / playbackSpeed).toLong()
-            val startServerTime = System.currentTimeMillis() + serverOffset
-            viewModelScope.launch {
-                handyRepo.play(startServerTime, adjustedPos)
-            }
+        if (!syncInitialized) return
+        if (wasPlaying) deviceCommands.trySend(playCommand(newPositionMs))
+    }
+
+    /** 현재 시점 기준 재생 명령 생성. 위치와 서버시각을 같은 시점에 함께 캡처해 어긋남을 막는다. */
+    private fun playCommand(positionMs: Long): DeviceCommand.Play {
+        val offset = syncOffsetMs.value
+        // 스크립트에 배속을 미리 반영해 두었으므로 보내는 위치도 1/speed로 환산
+        val adjustedPos = ((positionMs + offset).coerceAtLeast(0) / playbackSpeed).toLong()
+        val startServerTime = System.currentTimeMillis() + serverOffset
+        return DeviceCommand.Play(startServerTime, adjustedPos)
+    }
+
+    /** 명령을 짧게 재시도. 한 번이라도 성공하면 true, 모두 실패하면 false. */
+    private suspend fun retryCommand(block: suspend () -> Result<Unit>): Boolean {
+        repeat(CMD_MAX_ATTEMPTS) { attempt ->
+            if (block().isSuccess) return true
+            if (attempt < CMD_MAX_ATTEMPTS - 1) delay(CMD_RETRY_DELAY_MS)
         }
+        return false
     }
 
     fun setLoop(enabled: Boolean) {
@@ -287,7 +321,7 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
         viewModelScope.launch { prefs.setSyncOffsetMs(v) }
     }
 
-    /** 사용자가 "Handy 오류" 배지를 눌러 재연결 시도. */
+    /** 사용자가 연결 오류 배지를 눌러 재연결 시도. */
     fun retrySync() {
         if (_syncState.value is HandySyncState.Ready) return
         syncInitialized = false
@@ -295,7 +329,7 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
         startSync()
     }
 
-    /** PrefsStore에 저장하고, Handy 연결 상태면 즉시 stroke 범위 적용 (`PUT /slide`). */
+    /** PrefsStore에 저장하고, 기기 연결 상태면 즉시 세기 범위 적용 (`PUT /slide`). */
     fun setStrokeRange(min: Int, max: Int) {
         viewModelScope.launch {
             prefs.setStrokeRange(min, max)
@@ -331,5 +365,10 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             runCatching { handyRepo.stop() }
         }
+    }
+
+    private companion object {
+        const val CMD_MAX_ATTEMPTS = 3      // 최초 1회 + 재시도 2회
+        const val CMD_RETRY_DELAY_MS = 300L
     }
 }

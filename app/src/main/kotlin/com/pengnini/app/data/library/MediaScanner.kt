@@ -96,11 +96,12 @@ class MediaScanner(private val context: Context, private val smb: SmbManager) {
             }
         }
 
-    private fun walkSmb(folderUri: String, visit: (String, SmbManager.SmbEntry) -> Unit) {
+    private fun walkSmb(folderUri: String, depth: Int = 0, visit: (String, SmbManager.SmbEntry) -> Unit) {
+        if (depth > MAX_SCAN_DEPTH) return // 심링크/DFS 순환에서 무한 재귀(StackOverflow) 방지
         val entries = runCatching { smb.list(folderUri) }.getOrDefault(emptyList())
         entries.forEach { entry ->
             val childUri = SmbManager.childUri(folderUri, entry.name)
-            if (entry.isDirectory) walkSmb(childUri, visit) else visit(childUri, entry)
+            if (entry.isDirectory) walkSmb(childUri, depth + 1, visit) else visit(childUri, entry)
         }
     }
 
@@ -135,6 +136,7 @@ class MediaScanner(private val context: Context, private val smb: SmbManager) {
     )
 
     companion object {
+        private const val MAX_SCAN_DEPTH = 16
         private val VIDEO_EXTS = listOf(".mp4", ".mkv", ".webm", ".m4v", ".mov", ".avi", ".ts", ".flv")
         private val SUB_EXTS = listOf(".srt", ".vtt", ".ass", ".ssa")
     }

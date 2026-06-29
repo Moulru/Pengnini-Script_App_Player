@@ -10,11 +10,13 @@ import com.pengnini.app.data.db.FolderEntity
 import com.pengnini.app.data.db.VideoEntity
 import com.pengnini.app.data.db.displayTitle
 import com.pengnini.app.data.library.LibraryViewMode
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -71,14 +73,16 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         _filter,
     ) { vids, search, sort, filter ->
         applyFilters(vids, search, filter).let { applySort(it, sort) }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val allTags: StateFlow<List<String>> = repo.videos.map { vids ->
         vids.flatMap { v -> v.tags.split(',').map { it.trim() } }
             .filter { it.isNotBlank() }
             .distinct()
             .sortedBy { it.lowercase() }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val isScanning = MutableStateFlow(false)
 
@@ -174,10 +178,6 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { onResult(repo.deleteVideo(uri)) }
     }
 
-    fun clearLibrary() {
-        viewModelScope.launch { repo.clearLibrary() }
-    }
-
     private fun applyFilters(
         vids: List<VideoEntity>,
         search: String,
@@ -194,8 +194,9 @@ class LibraryViewModel(app: Application) : AndroidViewModel(app) {
                 (!filter.onlyFavorite || v.favorite) &&
                 (v.rating >= filter.minRating) &&
                 (filter.selectedFolders.isEmpty() || v.folderUri in filter.selectedFolders) &&
-                (filter.selectedTags.isEmpty() || filter.selectedTags.all { tag ->
-                    v.tags.split(',').map { it.trim() }.any { it.equals(tag, ignoreCase = true) }
+                (filter.selectedTags.isEmpty() || run {
+                    val tagList = v.tags.split(',').map { it.trim() }
+                    filter.selectedTags.all { tag -> tagList.any { it.equals(tag, ignoreCase = true) } }
                 })
         }
     }

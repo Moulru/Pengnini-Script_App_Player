@@ -111,11 +111,11 @@ fun LockScreen(onUnlocked: () -> Unit) {
             },
             confirmButton = {
                 TextButton(onClick = {
+                    showResetConfirm = false // 즉시 닫아 중복 탭 방지
                     scope.launch {
                         runCatching { Container.libraryRepo.clearLibrary() }
                         runCatching { store.clear() }
                         runCatching { Container.prefs.setAppLockEnabled(false) }
-                        showResetConfirm = false
                         onUnlocked()
                     }
                 }) { Text("초기화하고 해제", color = DotError) }
