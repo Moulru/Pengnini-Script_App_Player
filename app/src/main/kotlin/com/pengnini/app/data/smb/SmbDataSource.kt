@@ -69,12 +69,14 @@ class SmbDataSource(private val smb: SmbManager) : BaseDataSource(true) {
     override fun getUri(): Uri? = dataSpec?.uri
 
     override fun close() {
+        val uri = dataSpec?.uri?.toString()
         dataSpec = null
         try {
             file?.close()
         } catch (_: Exception) {
             // 닫기 실패는 무시
         } finally {
+            if (file != null && uri != null) smb.notifyFileClosed(uri)
             file = null
             if (opened) {
                 opened = false

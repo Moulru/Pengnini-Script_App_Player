@@ -76,6 +76,21 @@ class HandyRepository(private val keyStore: HandyKeyStore) {
         )
     }
 
+    /**
+     * 재생 전에 미리 해둘 수 있는 것만 먼저 처리한다 — 연결 확인과 서버 시각 오프셋 측정.
+     *
+     * 스크립트 업로드와 `/hssp/setup`은 어떤 영상을 틀지 알아야 해서 여기서 못 한다.
+     * 대신 제일 오래 걸리는 시간 동기화(왕복 10회)를 미리 재두면 첫 재생이 눈에 띄게 빨라진다.
+     * 실패는 조용히 무시 — 어디까지나 사전 준비라 실패해도 재생 시 정상 경로로 다시 시도된다.
+     */
+    suspend fun prewarm(): Boolean {
+        if (!hasKey) return false
+        val connected = runCatching { api.getConnected().connected }.getOrDefault(false)
+        if (!connected) return false
+        runCatching { syncOffset() }
+        return true
+    }
+
     suspend fun uploadScript(name: String, bytes: ByteArray, sha256: String): Result<String> = runCatching {
         // 같은 스크립트를 이 세션에서 이미 업로드했으면 재업로드 생략
         lastUpload?.let { (sha, url) -> if (sha == sha256) return Result.success(url) }
@@ -102,6 +117,10 @@ class HandyRepository(private val keyStore: HandyKeyStore) {
         // sha256 전달 시 디바이스 캐시에 있으면 재다운로드 생략
         api.hsspSetup(HsspSetupBody(url, sha256)).orThrow()
         Unit
+    }.onFailure {
+        // 업로드 URL은 임시 호스팅이라 만료될 수 있다. 실패한 URL을 캐시에 남겨 두면
+        // 재시도해도 같은 죽은 URL을 다시 써서 앱을 껐다 켜기 전까지 복구되지 않는다.
+        if (lastUpload?.second == url) lastUpload = null
     }
 
     suspend fun play(estimatedServerTime: Long, startTimeMs: Long): Result<Unit> = runCatching {

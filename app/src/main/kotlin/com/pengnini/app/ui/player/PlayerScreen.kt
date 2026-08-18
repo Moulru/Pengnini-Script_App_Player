@@ -9,6 +9,7 @@ import kotlin.math.roundToInt
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -49,6 +50,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -60,11 +62,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -87,7 +93,11 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.RenderersFactory
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -135,6 +145,10 @@ fun PlayerScreen(
     val gZoom by vm.gestureZoom.collectAsStateWithLifecycle()
     val syncState by vm.syncState.collectAsStateWithLifecycle()
     val syncOffsetMs by vm.syncOffsetMs.collectAsStateWithLifecycle()
+    val hwAccel by vm.hwAccel.collectAsStateWithLifecycle()
+    val sharpenSetting by vm.sharpen.collectAsStateWithLifecycle()
+    val loadError by vm.loadError.collectAsStateWithLifecycle()
+    val heatmap by vm.heatmap.collectAsStateWithLifecycle()
     val strokeMin by vm.strokeMin.collectAsStateWithLifecycle()
     val strokeMax by vm.strokeMax.collectAsStateWithLifecycle()
 
@@ -163,7 +177,25 @@ fun PlayerScreen(
         }
     }
 
-    if (video == null) {
+    if (loadError) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(Color.Black),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = stringResource(R.string.player_load_failed),
+                    color = Color.White,
+                )
+                Spacer(Modifier.height(12.dp))
+                TextButton(onClick = onBack) {
+                    Text(stringResource(R.string.action_back))
+                }
+            }
+        }
+        return
+    }
+    if (video == null || hwAccel == null || sharpenSetting == null) {
         Box(
             modifier = Modifier.fillMaxSize().background(Color.Black),
             contentAlignment = Alignment.Center,
@@ -171,6 +203,8 @@ fun PlayerScreen(
         return
     }
     val v = video!!
+    val hwAccelOn = hwAccel!!
+    val sharpen = sharpenSetting!!
 
     var subtitleEnabled by remember { mutableStateOf(true) }
     var scriptPopupOpen by remember { mutableStateOf(false) }
@@ -191,12 +225,20 @@ fun PlayerScreen(
 
     val exoPlayer = remember(v.uri) {
         val builder = ExoPlayer.Builder(context)
+        if (!hwAccelOn) builder.setRenderersFactory(softwareRenderersFactory(context))
         if (SmbManager.isSmb(v.uri)) {
             builder.setMediaSourceFactory(
                 DefaultMediaSourceFactory(SmbDataSource.Factory(Container.smbManager)),
             )
         }
         builder.build().also {
+            // 실험실: 선명하게 보정. GL 파이프라인 초기화는 기기에 따라 실패할 수 있어,
+            // 실패해도 보정만 빠지고 재생은 그대로 이어지게 감싼다.
+            if (sharpen.enabled) {
+                runCatching {
+                    it.setVideoEffects(listOf(SharpenEffect(sharpen.shader, sharpen.strength)))
+                }
+            }
             it.setMediaItem(buildMediaItem(v, subtitleAuto))
             it.prepare()
             if (v.lastPositionMs > 0 && (v.durationMs <= 0 || v.lastPositionMs < v.durationMs - 5000)) {
@@ -348,7 +390,9 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(exoPlayer) {
+    LaunchedEffect(exoPlayer, controlsVisible) {
+        // 시크바가 보일 때만 촘촘히 갱신한다. 숨겨져 있으면 A-B 구간반복 확인만 하면 되므로 느슨하게.
+        val intervalMs = if (controlsVisible) 60L else 400L
         while (true) {
             isPlaying = exoPlayer.isPlaying
             val a = loopAMs
@@ -360,7 +404,7 @@ fun PlayerScreen(
             } else if (seekingPositionMs == null) {
                 positionMs = cur
             }
-            delay(200)
+            delay(intervalMs)
         }
     }
 
@@ -478,6 +522,7 @@ fun PlayerScreen(
             BottomBar(
                 positionMs = seekingPositionMs ?: positionMs,
                 durationMs = v.durationMs,
+                heatmap = heatmap,
                 isPlaying = isPlaying,
                 loopEnabled = loop,
                 hasSubtitle = hasSubtitle,
@@ -525,6 +570,24 @@ fun PlayerScreen(
         }
     }
 }
+
+/**
+ * 하드웨어 가속을 끈 경우에 쓸 렌더러 팩토리 — 소프트웨어 디코더를 우선한다.
+ * 해당 코덱에 소프트웨어 디코더가 아예 없으면 원래 목록으로 되돌려 재생 실패를 막는다.
+ * (설정이 켜져 있는 기본 경로에서는 이 팩토리를 쓰지 않는다.)
+ */
+@OptIn(UnstableApi::class)
+private fun softwareRenderersFactory(context: Context): RenderersFactory =
+    DefaultRenderersFactory(context)
+        .setEnableDecoderFallback(true)
+        .setMediaCodecSelector(
+            MediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
+                val all = MediaCodecUtil.getDecoderInfos(
+                    mimeType, requiresSecureDecoder, requiresTunnelingDecoder,
+                )
+                all.filter { it.softwareOnly }.ifEmpty { all }
+            },
+        )
 
 @OptIn(UnstableApi::class)
 private fun buildMediaItem(v: VideoEntity, subtitleAuto: Boolean): MediaItem {
@@ -799,10 +862,41 @@ private fun ScriptQuickslotPopup(
     }
 }
 
+/**
+ * 스크립트가 격한 구간을 시크바 아래에 막대로 그린다.
+ * 강도가 높을수록 막대가 높고 보라색에 가까워진다(낮으면 낮고 청록).
+ */
+@Composable
+private fun ScriptHeatmapBar(
+    heatmap: ScriptHeatmap,
+    durationMs: Long,
+    modifier: Modifier = Modifier,
+) {
+    val low = Color(0xFF5EDFC1)
+    val high = Color(0xFF9C7CFF)
+    Canvas(modifier = modifier.height(6.dp)) {
+        val totalMs = durationMs.coerceAtLeast(1L).toFloat()
+        val bucketMs = heatmap.endMs.toFloat() / heatmap.buckets.size
+        heatmap.buckets.forEachIndexed { index, value ->
+            if (value <= 0.02f) return@forEachIndexed
+            val startX = (index * bucketMs / totalMs) * size.width
+            if (startX >= size.width) return@forEachIndexed
+            val endX = (((index + 1) * bucketMs) / totalMs) * size.width
+            val barHeight = size.height * (0.35f + 0.65f * value)
+            drawRect(
+                color = lerp(low, high, value).copy(alpha = 0.35f + 0.55f * value),
+                topLeft = Offset(startX, size.height - barHeight),
+                size = Size((endX - startX).coerceAtLeast(1f), barHeight),
+            )
+        }
+    }
+}
+
 @Composable
 private fun BottomBar(
     positionMs: Long,
     durationMs: Long,
+    heatmap: ScriptHeatmap?,
     isPlaying: Boolean,
     loopEnabled: Boolean,
     loopAMs: Long?,
@@ -888,8 +982,23 @@ private fun BottomBar(
                 )
             }
         }
+        if (heatmap != null && durationMs > 0) {
+            // 슬라이더 썸 반경만큼 좌우를 맞춰야 트랙과 눈금이 어긋나지 않는다.
+            ScriptHeatmapBar(
+                heatmap = heatmap,
+                durationMs = durationMs,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp),
+            )
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(formatDuration(positionMs), color = Color.White, fontSize = 12.sp)
+            Text(
+                formatDuration(positionMs),
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+            )
             Spacer(Modifier.width(8.dp))
             // 재생 그룹 (좌측)
             IconButton(onClick = onPrev, enabled = hasPrev) {
@@ -899,19 +1008,20 @@ private fun BottomBar(
                     tint = if (hasPrev) Color.White else Color.White.copy(alpha = 0.3f),
                 )
             }
+            // 이 줄에서 유일하게 꽉 채운 요소 — 재생/일시정지는 눈으로 찾을 필요가 없어야 한다.
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.15f))
+                    .background(Color.White)
                     .clickable(onClick = onPlayPause),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Outlined.Pause else Icons.Outlined.PlayArrow,
                     contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(26.dp),
+                    tint = Color.Black,
+                    modifier = Modifier.size(28.dp),
                 )
             }
             IconButton(onClick = onNext, enabled = hasNext) {
@@ -981,7 +1091,12 @@ private fun BottomBar(
                 )
             }
             Spacer(Modifier.width(8.dp))
-            Text(formatDuration(durationMs), color = Color.White, fontSize = 12.sp)
+            // 총 길이보다 "얼마 남았나"가 재생 중에 훨씬 자주 궁금한 값이다.
+            Text(
+                "-" + formatDuration((durationMs - positionMs).coerceAtLeast(0L)),
+                color = Color.White.copy(alpha = 0.75f),
+                fontSize = 12.sp,
+            )
         }
     }
 }
@@ -999,15 +1114,15 @@ private fun SyncStateBadge(state: HandySyncState, onRetry: () -> Unit) {
     if (info == null) return
     val (label, tint, clickable) = info
     Surface(
-        color = tint.copy(alpha = 0.25f),
-        shape = RoundedCornerShape(8.dp),
+        color = tint.copy(alpha = 0.22f),
+        shape = RoundedCornerShape(999.dp),
         modifier = if (clickable) Modifier.clickable(onClick = onRetry) else Modifier,
     ) {
         Text(
             label,
             color = tint,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            fontSize = 12.sp,
+            fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
         )
     }

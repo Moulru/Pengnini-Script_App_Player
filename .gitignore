@@ -33,6 +33,9 @@ keystore.properties
 *.jks
 *.keystore
 
+# ─────────────── 산출물 (목업·빌드 APK 등 로컬 전용) ───────────────
+산출물/
+
 # ─────────────── 개발 문서 (외부 배포 불필요) ───────────────
 CLAUDE.md
 CLAUDE_CONTEXT.md

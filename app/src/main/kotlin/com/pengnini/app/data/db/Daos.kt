@@ -17,6 +17,16 @@ interface VideoDao {
     @Query("SELECT * FROM videos WHERE folderUri = :folderUri")
     suspend fun getByFolder(folderUri: String): List<VideoEntity>
 
+    /** 하위 폴더 단위 조회. bucketUri가 없는 구버전 행은 folderUri로 폴백해 잡는다. */
+    @Query(
+        """
+        SELECT * FROM videos
+        WHERE COALESCE(bucketUri, folderUri) = :bucketKey
+        ORDER BY title COLLATE NOCASE ASC
+        """,
+    )
+    fun observeByBucket(bucketKey: String): Flow<List<VideoEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(videos: List<VideoEntity>)
 
@@ -50,8 +60,37 @@ interface VideoDao {
     @Query("DELETE FROM videos WHERE uri = :uri")
     suspend fun delete(uri: String)
 
-    @Query("SELECT uri FROM videos ORDER BY addedAt DESC")
-    suspend fun getAllUrisOrdered(): List<String>
+    /**
+      * 라이브러리 기본 순서(추가순 내림차순 → 제목 → uri)에서 바로 앞/뒤 영상.
+      * 전체 URI 목록을 메모리에 올리지 않고 한 건만 가져온다.
+      *
+      * uri까지 비교하는 이유: 한 폴더를 한 번에 스캔하면 addedAt이 모두 같고,
+      * 하위 폴더가 나뉘면서 같은 파일명(`2023/clip.mp4`·`2024/clip.mp4`)이 흔해졌다.
+      * (addedAt, title)만으로는 동점인 영상들이 서로 건너뛰어져 목록에 보이는데도 도달할 수 없다.
+      */
+    @Query(
+        """
+        SELECT uri FROM videos
+        WHERE addedAt > :addedAt
+           OR (addedAt = :addedAt AND title COLLATE NOCASE < :title)
+           OR (addedAt = :addedAt AND title COLLATE NOCASE = :title AND uri < :uri)
+        ORDER BY addedAt ASC, title COLLATE NOCASE DESC, uri DESC
+        LIMIT 1
+        """,
+    )
+    suspend fun getPrevUri(addedAt: Long, title: String, uri: String): String?
+
+    @Query(
+        """
+        SELECT uri FROM videos
+        WHERE addedAt < :addedAt
+           OR (addedAt = :addedAt AND title COLLATE NOCASE > :title)
+           OR (addedAt = :addedAt AND title COLLATE NOCASE = :title AND uri > :uri)
+        ORDER BY addedAt DESC, title COLLATE NOCASE ASC, uri ASC
+        LIMIT 1
+        """,
+    )
+    suspend fun getNextUri(addedAt: Long, title: String, uri: String): String?
 
     @Query("DELETE FROM videos")
     suspend fun clear()
@@ -104,6 +143,9 @@ interface FolderDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(folder: FolderEntity)
+
+    @Query("UPDATE folders SET lastScannedAt = :at WHERE uri = :uri")
+    suspend fun setLastScannedAt(uri: String, at: Long)
 
     @Query("DELETE FROM folders WHERE uri = :uri")
     suspend fun delete(uri: String)

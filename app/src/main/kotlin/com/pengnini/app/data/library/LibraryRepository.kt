@@ -22,6 +22,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
@@ -35,16 +36,31 @@ class LibraryRepository(
     private val userDataDao: VideoUserDataDao,
     private val scanner: MediaScanner,
     private val smbCredentials: SmbCredentialStore,
+    private val smb: SmbManager,
     private val context: Context,
 ) {
     val folders: Flow<List<FolderEntity>> = folderDao.observeAll()
     val videos: Flow<List<VideoEntity>> = videoDao.observeAll()
 
+    /** 하위 폴더까지 나눈 폴더 분류. 홈 필터와 폴더 탭이 같은 목록을 쓴다. */
+    val folderBuckets: Flow<List<FolderBucket>> =
+        combine(videos, folders) { vids, roots -> buildFolderBuckets(vids, roots) }
+
+    /** 폴더 하나에 든 영상(제목순). */
+    fun videosInBucket(bucketKey: String): Flow<List<VideoEntity>> =
+        videoDao.observeByBucket(bucketKey)
+
     private val metadataStore = MetadataStore(context)
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val flushJobs = ConcurrentHashMap<String, Job>()
 
-    suspend fun addFolder(uri: Uri, matchScripts: Boolean = true, multiExt: Boolean = false) {
+    /** 폴더를 등록하고 스캔한다. 반환값은 찾은 영상 수. */
+    suspend fun addFolder(
+        uri: Uri,
+        matchScripts: Boolean = true,
+        multiExt: Boolean = false,
+        onProgress: (Int) -> Unit = {},
+    ): Int {
         runCatching {
             // 사이드카 기록을 위해 쓰기 권한도 함께 영구화 (트리 선택은 보통 쓰기 포함)
             context.contentResolver.takePersistableUriPermission(
@@ -56,7 +72,7 @@ class LibraryRepository(
             DocumentFile.fromTreeUri(context, uri)?.name
         }.getOrNull()
         folderDao.insert(FolderEntity(uri.toString(), displayName))
-        scanFolder(uri.toString(), matchScripts, multiExt)
+        return scanFolder(uri.toString(), matchScripts, multiExt, onProgress)
     }
 
     suspend fun addSmbFolder(
@@ -68,13 +84,14 @@ class LibraryRepository(
         domain: String,
         matchScripts: Boolean = true,
         multiExt: Boolean = false,
+        onProgress: (Int) -> Unit = {},
     ): Int {
         smbCredentials.save(host, SmbCredential(username, password, domain))
         val folderUri = SmbManager.buildUri(host, share, path)
         val displayName = listOf(host, share, path.trim('/'))
             .filter { it.isNotBlank() }.joinToString("/")
         folderDao.insert(FolderEntity(folderUri, displayName))
-        scanFolder(folderUri, matchScripts, multiExt)
+        scanFolder(folderUri, matchScripts, multiExt, onProgress)
         return videoDao.getByFolder(folderUri).size
     }
 
@@ -89,7 +106,11 @@ class LibraryRepository(
                     SmbManager.isSmb(it.uri) &&
                         runCatching { SmbManager.parse(it.uri).host }.getOrNull() == host
                 }
-                if (!stillUsed) smbCredentials.remove(host)
+                if (!stillUsed) {
+                    smbCredentials.remove(host)
+                    // 열린 연결·세션이 앱이 끝날 때까지 남지 않게 정리
+                    withContext(Dispatchers.IO) { runCatching { smb.releaseHost(host) } }
+                }
             }
             return
         }
@@ -104,13 +125,21 @@ class LibraryRepository(
         // video_user_data는 의도적으로 보존 → 같은 폴더 재등록 시 평점/태그 복원
     }
 
-    suspend fun scanFolder(uriStr: String, matchScripts: Boolean = true, multiExt: Boolean = false) {
+    /** 폴더를 스캔해 DB에 반영하고, 찾은 영상 수를 반환한다. */
+    suspend fun scanFolder(
+        uriStr: String,
+        matchScripts: Boolean = true,
+        multiExt: Boolean = false,
+        onProgress: (Int) -> Unit = {},
+    ): Int {
         val items = if (SmbManager.isSmb(uriStr)) {
-            scanner.scanSmb(uriStr, multiExt)
+            scanner.scanSmb(uriStr, multiExt, onProgress)
         } else {
-            scanner.scan(Uri.parse(uriStr), matchScripts, multiExt)
+            scanner.scan(Uri.parse(uriStr), matchScripts, multiExt, onProgress)
         }
-        if (items.isEmpty()) return
+        // 결과가 비어도 "언제 확인했는지"는 남겨야 폴더 목록이 계속 '스캔 안 함'으로 보이지 않는다.
+        folderDao.setLastScannedAt(uriStr, System.currentTimeMillis())
+        if (items.isEmpty()) return 0
         // 사용자 데이터 복원: 우선 DB(user_data, uri 정확 매칭) → 없으면 사이드카(title 매칭, 재설치·이식 대비)
         val userData = userDataDao.getAll().associateBy { it.uri }
         val sidecar = metadataStore.read(uriStr)
@@ -121,6 +150,11 @@ class LibraryRepository(
             val base = fresh.copy(
                 funscriptUri = fresh.funscriptUri ?: prior?.funscriptUri,
                 addedAt = prior?.addedAt ?: fresh.addedAt,
+                // 스캔은 길이·해상도를 채우지 않으므로(파일을 열어야 함)
+                // 썸네일 생성·재생 때 확보해 둔 기존 값을 덮어쓰지 않는다.
+                durationMs = prior?.durationMs?.takeIf { it > 0 } ?: fresh.durationMs,
+                width = prior?.width?.takeIf { it > 0 } ?: fresh.width,
+                height = prior?.height?.takeIf { it > 0 } ?: fresh.height,
             )
             val ud = userData[base.uri]
             if (ud != null) {
@@ -154,10 +188,21 @@ class LibraryRepository(
             }
         }
         videoDao.upsertAll(merged)
+        return merged.size
     }
 
-    suspend fun rescanAll(matchScripts: Boolean = true, multiExt: Boolean = false) {
-        folderDao.getAll().forEach { scanFolder(it.uri, matchScripts, multiExt) }
+    suspend fun rescanAll(
+        matchScripts: Boolean = true,
+        multiExt: Boolean = false,
+        onProgress: (Int) -> Unit = {},
+    ): Int {
+        var total = 0
+        folderDao.getAll().forEach { folder ->
+            // 진행률은 폴더별 개수가 아니라 전체 누적으로 보여준다.
+            val base = total
+            total += scanFolder(folder.uri, matchScripts, multiExt) { onProgress(base + it) }
+        }
+        return total
     }
 
     suspend fun setRating(uri: String, rating: Int) {
@@ -246,7 +291,11 @@ class LibraryRepository(
     }
 
     suspend fun getVideo(uri: String): VideoEntity? = videoDao.get(uri)
-    suspend fun getAllVideoUrisOrdered(): List<String> = videoDao.getAllUrisOrdered()
+
+    /** 라이브러리 기본 순서에서 바로 앞/뒤 영상 URI (이전, 다음). */
+    suspend fun getAdjacentUris(video: VideoEntity): Pair<String?, String?> =
+        videoDao.getPrevUri(video.addedAt, video.title, video.uri) to
+            videoDao.getNextUri(video.addedAt, video.title, video.uri)
 
     /** 라이브러리 완전 초기화: 폴더·영상 목록 + 평가(별점·태그) + 사이드카 백업까지 모두 제거. */
     suspend fun clearLibrary() = withContext(Dispatchers.IO) {
@@ -258,6 +307,8 @@ class LibraryRepository(
         videoDao.clear()
         folderDao.clear()
         userDataDao.clear()
+        // 등록된 폴더가 모두 사라졌으니 열려 있던 SMB 연결도 닫는다.
+        runCatching { smb.release() }
     }
 
     /** rating/favorite/tags 변경 후 해당 폴더 사이드카를 디바운스 기록(백그라운드, best-effort). */

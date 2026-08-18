@@ -1,7 +1,9 @@
 package com.pengnini.app.ui.library
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -20,12 +23,14 @@ import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.LinkOff
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -45,6 +50,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
@@ -53,12 +59,16 @@ import androidx.compose.ui.unit.dp
 import com.pengnini.app.R
 import com.pengnini.app.data.db.VideoEntity
 import com.pengnini.app.data.db.displayTitle
+import com.pengnini.app.ui.common.formatDuration
+import com.pengnini.app.ui.common.formatFileSize
+import com.pengnini.app.ui.common.formatResolution
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VideoActionSheet(
     video: VideoEntity,
     onDismiss: () -> Unit,
+    onPlay: () -> Unit,
     onSetRating: (Int) -> Unit,
     onSetFavorite: (Boolean) -> Unit,
     onEditTags: () -> Unit,
@@ -78,17 +88,52 @@ fun VideoActionSheet(
                 .padding(horizontal = 20.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(
-                video.displayTitle,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-            )
+            // 어느 영상을 조작 중인지 썸네일·길이·해상도·스크립트 상태로 보여준다.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .width(96.dp)
+                        .height(54.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                ) {
+                    VideoThumbnail(
+                        uri = video.uri,
+                        contentDescription = null,
+                        onMediaInfo = { _, _, _ -> },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        video.displayTitle,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                    )
+                    Text(
+                        text = listOfNotNull(
+                            formatDuration(video.durationMs).takeIf { video.durationMs > 0 },
+                            formatResolution(video.width, video.height),
+                            formatFileSize(video.sizeBytes),
+                        ).joinToString(" · "),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            FilledTonalButton(onClick = onPlay, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Outlined.PlayArrow, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.action_play))
+            }
 
             // 별점
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(stringResource(R.string.action_rating), style = MaterialTheme.typography.labelLarge)
-                Row {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     (1..5).forEach { i ->
                         IconButton(onClick = {
                             onSetRating(if (video.rating == i) 0 else i)

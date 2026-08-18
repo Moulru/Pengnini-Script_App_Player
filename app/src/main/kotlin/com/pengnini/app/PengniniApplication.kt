@@ -12,6 +12,8 @@ import com.pengnini.app.data.db.MIGRATION_1_2
 import com.pengnini.app.data.db.MIGRATION_2_3
 import com.pengnini.app.data.db.MIGRATION_3_4
 import com.pengnini.app.data.db.MIGRATION_4_5
+import com.pengnini.app.data.db.MIGRATION_5_6
+import com.pengnini.app.data.db.MIGRATION_6_7
 import com.pengnini.app.data.db.PengniniDatabase
 import com.pengnini.app.data.handy.HandyRepository
 import com.pengnini.app.data.library.LibraryRepository
@@ -76,7 +78,10 @@ object Container {
         if (initialized) return
         initialized = true
         db = Room.databaseBuilder(app, PengniniDatabase::class.java, "pengnini.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+            .addMigrations(
+                MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4,
+                MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7,
+            )
             .fallbackToDestructiveMigration()
             .build()
         keyStore = HandyKeyStore(app)
@@ -91,6 +96,7 @@ object Container {
             userDataDao = db.userDataDao(),
             scanner = MediaScanner(app, smbManager),
             smbCredentials = smbCredentials,
+            smb = smbManager,
             context = app,
         )
         handyRepo = HandyRepository(keyStore)

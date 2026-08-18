@@ -39,6 +39,9 @@
     <!-- Snackbar -->
     <string name="snackbar_folder_added">폴더 추가됨 · 스캔 시작…</string>
     <string name="snackbar_scan_done">스캔 완료</string>
+    <string name="snackbar_scan_found">영상 %1$d개를 찾았어요</string>
+    <string name="snackbar_scan_empty">이 폴더에서 영상을 찾지 못했어요</string>
+    <string name="scan_progress">영상 %1$d개 찾는 중…</string>
 
     <!-- Filter -->
     <string name="filter_title">필터</string>
@@ -182,4 +185,64 @@
     <string name="smb_empty">영상을 찾지 못했어요. 호스트·공유 이름·계정을 확인해 주세요</string>
     <string name="network_empty_title">네트워크 영상이 없어요</string>
     <string name="network_empty_subtitle">네트워크 폴더를 추가하거나 연결을 확인해 주세요</string>
+
+    <!-- 하단 탭 -->
+    <string name="nav_home">홈</string>
+    <string name="nav_folders">폴더</string>
+
+    <!-- 정렬·필터 시트 -->
+    <string name="sort_tab">정렬</string>
+    <string name="filter_tab">필터</string>
+    <string name="filter_tab_count">필터 %1$d</string>
+    <string name="sort_field_label">정렬 기준</string>
+    <string name="sort_direction_label">방향</string>
+    <string name="sort_direction_desc">내림차순</string>
+    <string name="sort_direction_asc">오름차순</string>
+    <string name="sort_field_added">추가순</string>
+    <string name="sort_field_title">제목</string>
+    <string name="sort_field_duration">길이</string>
+    <string name="sort_field_rating">별점</string>
+    <string name="sort_field_resolution">해상도</string>
+    <string name="sort_field_size">크기</string>
+    <string name="library_filter_sort">필터·정렬</string>
+
+    <!-- 빠른 필터 -->
+    <string name="quick_all">전체</string>
+    <string name="quick_sync">Sync</string>
+    <string name="quick_favorite">즐겨찾기</string>
+    <string name="quick_rating4">★ 4+</string>
+
+    <!-- 홈 빈 화면 -->
+    <string name="library_empty_go_folders">폴더 탭에서 영상이 있는 폴더를 추가해 주세요</string>
+    <string name="library_no_result">조건에 맞는 영상이 없어요</string>
+    <string name="library_no_result_sub">검색어나 필터를 바꿔 보세요</string>
+
+    <!-- 폴더 탭 -->
+    <string name="folder_rescan_all">전체 다시 스캔</string>
+    <string name="folder_menu_rescan">이 폴더 다시 스캔</string>
+    <string name="folder_menu_remove">등록 폴더 제거</string>
+    <string name="folder_remove_title">폴더를 제거할까요?</string>
+    <string name="folder_remove_msg">등록한 폴더 \"%1$s\" 와 그 하위 폴더가 목록에서 모두 사라집니다. 실제 파일은 지워지지 않고, 별점·태그는 보관됩니다.</string>
+    <string name="folder_video_count">영상 %1$d개</string>
+    <string name="folder_empty_title">등록된 폴더가 없어요</string>
+    <string name="folder_empty_subtitle">영상이 있는 폴더를 추가하면 하위 폴더까지 자동으로 나뉩니다</string>
+    <string name="folder_empty_scanned">폴더에서 영상을 찾지 못했어요</string>
+    <string name="folder_empty_scanned_sub">다시 스캔하거나 다른 폴더를 추가해 보세요</string>
+
+    <!-- 시간 표시 -->
+    <string name="time_never">스캔 안 함</string>
+    <string name="time_just_now">방금</string>
+    <string name="time_minutes_ago">%1$d분 전</string>
+    <string name="time_hours_ago">%1$d시간 전</string>
+    <string name="time_days_ago">%1$d일 전</string>
+
+    <!-- 공통 액션 -->
+    <string name="action_more">더보기</string>
+    <string name="action_back">뒤로</string>
+    <string name="action_play">재생</string>
+
+    <string name="folder_videos_empty">이 폴더에 영상이 없어요</string>
+    <string name="folder_videos_empty_sub">파일을 옮겼거나 지웠다면 폴더를 다시 스캔해 보세요</string>
+    <string name="player_load_failed">영상을 불러올 수 없습니다</string>
+    <string name="library_video_count">영상 %1$d개</string>
 </resources>

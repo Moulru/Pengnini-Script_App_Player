@@ -39,6 +39,9 @@
     <!-- Snackbar -->
     <string name="snackbar_folder_added">Folder added · scanning…</string>
     <string name="snackbar_scan_done">Scan complete</string>
+    <string name="snackbar_scan_found">Found %1$d video(s)</string>
+    <string name="snackbar_scan_empty">No videos found in this folder</string>
+    <string name="scan_progress">Scanning · %1$d found…</string>
 
     <!-- Filter -->
     <string name="filter_title">Filter</string>
@@ -179,4 +182,64 @@
     <string name="smb_empty">No videos found. Check the host, share name, and credentials.</string>
     <string name="network_empty_title">No network videos</string>
     <string name="network_empty_subtitle">Add a network folder or check the connection</string>
+
+    <!-- Bottom navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_folders">Folders</string>
+
+    <!-- Sort / filter sheet -->
+    <string name="sort_tab">Sort</string>
+    <string name="filter_tab">Filter</string>
+    <string name="filter_tab_count">Filter %1$d</string>
+    <string name="sort_field_label">Sort by</string>
+    <string name="sort_direction_label">Direction</string>
+    <string name="sort_direction_desc">Descending</string>
+    <string name="sort_direction_asc">Ascending</string>
+    <string name="sort_field_added">Added</string>
+    <string name="sort_field_title">Title</string>
+    <string name="sort_field_duration">Duration</string>
+    <string name="sort_field_rating">Rating</string>
+    <string name="sort_field_resolution">Resolution</string>
+    <string name="sort_field_size">Size</string>
+    <string name="library_filter_sort">Filter and sort</string>
+
+    <!-- Quick filters -->
+    <string name="quick_all">All</string>
+    <string name="quick_sync">Sync</string>
+    <string name="quick_favorite">Favorites</string>
+    <string name="quick_rating4">★ 4+</string>
+
+    <!-- Home empty states -->
+    <string name="library_empty_go_folders">Add a folder with videos from the Folders tab</string>
+    <string name="library_no_result">No videos match</string>
+    <string name="library_no_result_sub">Try a different search or filter</string>
+
+    <!-- Folders tab -->
+    <string name="folder_rescan_all">Rescan all</string>
+    <string name="folder_menu_rescan">Rescan this folder</string>
+    <string name="folder_menu_remove">Remove folder</string>
+    <string name="folder_remove_title">Remove this folder?</string>
+    <string name="folder_remove_msg">\"%1$s\" and all of its subfolders will disappear from the list. Files are not deleted, and ratings and tags are kept.</string>
+    <string name="folder_video_count">%1$d videos</string>
+    <string name="folder_empty_title">No folders yet</string>
+    <string name="folder_empty_subtitle">Add a folder with videos — subfolders are split automatically</string>
+    <string name="folder_empty_scanned">No videos found</string>
+    <string name="folder_empty_scanned_sub">Try rescanning or adding another folder</string>
+
+    <!-- Relative time -->
+    <string name="time_never">never scanned</string>
+    <string name="time_just_now">just now</string>
+    <string name="time_minutes_ago">%1$dm ago</string>
+    <string name="time_hours_ago">%1$dh ago</string>
+    <string name="time_days_ago">%1$dd ago</string>
+
+    <!-- Common actions -->
+    <string name="action_more">More</string>
+    <string name="action_back">Back</string>
+    <string name="action_play">Play</string>
+
+    <string name="folder_videos_empty">No videos in this folder</string>
+    <string name="folder_videos_empty_sub">If files were moved or deleted, try rescanning the folder</string>
+    <string name="player_load_failed">Could not load this video</string>
+    <string name="library_video_count">%1$d videos</string>
 </resources>

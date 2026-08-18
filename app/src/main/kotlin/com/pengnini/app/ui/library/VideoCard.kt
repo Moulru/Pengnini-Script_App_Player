@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,83 +20,97 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Favorite
-import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material.icons.outlined.PlayCircle
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.pengnini.app.R
 import com.pengnini.app.data.db.VideoEntity
 import com.pengnini.app.data.db.displayTitle
 import com.pengnini.app.data.media.ThumbnailCache
 import com.pengnini.app.ui.common.formatDuration
+import com.pengnini.app.ui.common.formatFileSize
+import com.pengnini.app.ui.common.formatResolution
+import com.pengnini.app.ui.theme.CardMetrics
+import com.pengnini.app.ui.theme.Radius
+import com.pengnini.app.ui.theme.Space
+import com.pengnini.app.ui.theme.TextSize
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/** 썸네일 아래를 덮어 흰 글자가 어떤 그림 위에서도 읽히게 하는 그라디언트. */
+val ThumbScrim = Brush.verticalGradient(
+    0.55f to Color.Transparent,
+    1f to Color.Black.copy(alpha = 0.72f),
+)
+
+/**
+ * 격자 카드.
+ *
+ * 높이는 **썸네일 + 제목 1줄 + 메타 1줄**로 항상 같다. 제목이 길든 짧든, 별점·즐겨찾기가
+ * 있든 없든 변하지 않는다 — 조건부로 나타나는 줄을 두면 같은 행 안에서도 바닥선이 어긋난다.
+ */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun VideoGridCard(
     video: VideoEntity,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
-    onFavoriteToggle: () -> Unit,
+    onMoreClick: () -> Unit,
+    onMediaInfo: (Long, Int, Int) -> Unit = { _, _, _ -> },
 ) {
-    OutlinedCard(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(Radius.card))
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
-        shape = RoundedCornerShape(14.dp),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp))
+                .aspectRatio(CardMetrics.THUMB_ASPECT)
+                .clip(RoundedCornerShape(Radius.card))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
             VideoThumbnail(
                 uri = video.uri,
                 contentDescription = video.displayTitle,
+                onMediaInfo = onMediaInfo,
                 modifier = Modifier.fillMaxSize(),
+                needsMediaInfo = video.durationMs <= 0,
             )
-            Text(
-                text = formatDuration(video.durationMs),
-                color = Color.White,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(6.dp)
-                    .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
-            )
+            Box(modifier = Modifier.fillMaxSize().background(ThumbScrim))
+
             if (video.funscriptUri != null) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                // 글자 배지는 썸네일을 크게 가린다 — 같은 뜻을 아이콘 하나로.
+                Box(
                     modifier = Modifier
                         .align(Alignment.TopStart)
-                        .padding(6.dp)
-                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                        .padding(Space.sm)
+                        .size(20.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape),
+                    contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         Icons.Outlined.Bolt,
@@ -103,155 +118,178 @@ fun VideoGridCard(
                         tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(12.dp),
                     )
-                    Spacer(Modifier.width(2.dp))
-                    Text(
-                        "Sync",
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
                 }
             }
-            // 즐겨찾기 토글 (카드에서 직접)
+
+            Text(
+                text = formatDuration(video.durationMs),
+                color = Color.White,
+                fontSize = TextSize.caption,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(horizontal = Space.sm, vertical = Space.xs),
+            )
+
             IconButton(
-                onClick = onFavoriteToggle,
+                onClick = onMoreClick,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(2.dp),
+                    .size(CardMetrics.moreTouch),
             ) {
                 Icon(
-                    imageVector = if (video.favorite) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder,
-                    contentDescription = null,
-                    tint = if (video.favorite) MaterialTheme.colorScheme.error else Color.White,
-                    modifier = Modifier
-                        .background(Color.Black.copy(alpha = 0.55f), CircleShape)
-                        .padding(6.dp)
-                        .size(18.dp),
+                    Icons.Outlined.MoreVert,
+                    contentDescription = stringResource(R.string.action_more),
+                    tint = Color.White.copy(alpha = 0.92f),
+                    modifier = Modifier.size(18.dp),
                 )
             }
         }
-        Column(
-            modifier = Modifier.padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
+
+        Spacer(Modifier.height(Space.sm))
+        Text(
+            text = video.displayTitle,
+            style = MaterialTheme.typography.bodyMedium,
+            fontSize = TextSize.cardTitle,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        VideoMetaRow(video)
+    }
+}
+
+/**
+ * 메타 한 줄. 순서는 내용과 무관하게 **별점 → 즐겨찾기 → 해상도·용량**으로 고정한다.
+ * 카드마다 순서가 바뀌면 눈이 매번 다시 찾아야 한다.
+ * 넘칠 때는 아이콘을 줄이지 않고 뒤쪽 텍스트만 말줄임 — 별·하트는 한눈에 읽는 정보다.
+ */
+@Composable
+fun VideoMetaRow(video: VideoEntity) {
+    // 별점이 있으면 용량을 빼고 해상도만 — 아이콘과 합쳐도 넘치지 않게.
+    val tech = if (video.rating > 0) {
+        listOfNotNull(formatResolution(video.width, video.height))
+    } else {
+        listOfNotNull(
+            formatResolution(video.width, video.height),
+            formatFileSize(video.sizeBytes),
+        )
+    }.joinToString(" · ")
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(18.dp), // 내용이 없어도 이 줄은 자리를 지킨다
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        repeat(video.rating) {
+            Icon(
+                Icons.Outlined.Star,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.secondary,
+                modifier = Modifier.size(CardMetrics.metaIcon),
+            )
+        }
+        if (video.favorite) {
+            Icon(
+                Icons.Outlined.Favorite,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(CardMetrics.metaIcon),
+            )
+        }
+        if (tech.isNotBlank()) {
+            Spacer(Modifier.width(2.dp))
             Text(
-                video.displayTitle,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
+                text = tech,
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = TextSize.caption,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (video.rating > 0) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    repeat(video.rating) {
-                        Icon(
-                            Icons.Outlined.Star,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.size(12.dp),
-                        )
-                    }
-                }
-            }
         }
     }
 }
 
+/** 목록(행) 형태. 격자와 같은 정보를 가로로 편다. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun VideoListRow(
     video: VideoEntity,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
-    onFavoriteToggle: () -> Unit,
+    onMoreClick: () -> Unit,
+    onMediaInfo: (Long, Int, Int) -> Unit = { _, _, _ -> },
 ) {
-    OutlinedCard(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
-        shape = RoundedCornerShape(12.dp),
+            .clip(RoundedCornerShape(Radius.card))
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(start = Space.sm, top = Space.sm, bottom = Space.sm),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier.padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Box(
+            modifier = Modifier
+                .width(120.dp)
+                .aspectRatio(CardMetrics.THUMB_ASPECT)
+                .clip(RoundedCornerShape(Radius.small))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
         ) {
-            Box(
+            VideoThumbnail(
+                uri = video.uri,
+                contentDescription = video.displayTitle,
+                onMediaInfo = onMediaInfo,
+                modifier = Modifier.fillMaxSize(),
+                needsMediaInfo = video.durationMs <= 0,
+            )
+            Box(modifier = Modifier.fillMaxSize().background(ThumbScrim))
+            Text(
+                text = formatDuration(video.durationMs),
+                color = Color.White,
+                fontSize = TextSize.caption,
+                fontWeight = FontWeight.SemiBold,
                 modifier = Modifier
-                    .width(120.dp)
-                    .aspectRatio(16f / 9f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-            ) {
-                VideoThumbnail(
-                    uri = video.uri,
-                    contentDescription = video.displayTitle,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                Text(
-                    text = formatDuration(video.durationMs),
-                    color = Color.White,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    .align(Alignment.BottomEnd)
+                    .padding(horizontal = Space.xs, vertical = 2.dp),
+            )
+            if (video.funscriptUri != null) {
+                Box(
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(4.dp)
-                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 5.dp, vertical = 1.dp),
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    video.displayTitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (video.funscriptUri != null) {
-                        Icon(
-                            Icons.Outlined.Bolt,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(14.dp),
-                        )
-                        Spacer(Modifier.width(2.dp))
-                        Text(
-                            "Sync",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    if (video.rating > 0) {
-                        repeat(video.rating) {
-                            Icon(
-                                Icons.Outlined.Star,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.size(12.dp),
-                            )
-                        }
-                    }
+                        .align(Alignment.TopStart)
+                        .padding(Space.xs)
+                        .size(18.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Outlined.Bolt,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(11.dp),
+                    )
                 }
             }
-            IconButton(onClick = onFavoriteToggle) {
-                Icon(
-                    if (video.favorite) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder,
-                    contentDescription = null,
-                    tint = if (video.favorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+        }
+        Spacer(Modifier.width(Space.md))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = video.displayTitle,
+                style = MaterialTheme.typography.bodyMedium,
+                fontSize = TextSize.body,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            VideoMetaRow(video)
+        }
+        IconButton(onClick = onMoreClick) {
             Icon(
-                Icons.Outlined.PlayCircle,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp),
+                Icons.Outlined.MoreVert,
+                contentDescription = stringResource(R.string.action_more),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -260,18 +298,25 @@ fun VideoListRow(
 /**
  * 영상 썸네일. 1/3 지점 프레임을 cacheDir에 1회 생성·재사용(로컬·SMB 공통).
  * 준비 전엔 빈 상태(부모 배경이 플레이스홀더 역할).
+ * 새로 만들 때는 길이·해상도도 함께 얻어지므로 [onMediaInfo]로 올려보낸다.
  */
 @Composable
-private fun VideoThumbnail(
+fun VideoThumbnail(
     uri: String,
     contentDescription: String?,
+    onMediaInfo: (Long, Int, Int) -> Unit,
     modifier: Modifier = Modifier,
+    needsMediaInfo: Boolean = false,
 ) {
     val context = LocalContext.current
+    val reportMediaInfo by rememberUpdatedState(onMediaInfo)
+    val wantMedia by rememberUpdatedState(needsMediaInfo)
     val thumb by produceState<File?>(null, uri) {
-        value = withContext(Dispatchers.IO) {
-            runCatching { ThumbnailCache.get(context, uri) }.getOrNull()
+        val result = withContext(Dispatchers.IO) {
+            runCatching { ThumbnailCache.get(context, uri, wantMedia) }.getOrNull()
         }
+        result?.media?.let { reportMediaInfo(it.durationMs, it.width, it.height) }
+        value = result?.file
     }
     AsyncImage(
         model = ImageRequest.Builder(context).data(thumb).crossfade(true).build(),

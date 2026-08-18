@@ -1,5 +1,8 @@
 package com.pengnini.app.ui.settings
 
+import android.content.Context
+import android.content.Intent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -7,15 +10,20 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.ClosedCaption
 import androidx.compose.material.icons.outlined.DeleteForever
 import androidx.compose.material.icons.outlined.Edit
@@ -29,13 +37,17 @@ import androidx.compose.material.icons.outlined.Loop
 import androidx.compose.material.icons.outlined.Pattern
 import androidx.compose.material.icons.outlined.PlayCircle
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.RestartAlt
+import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material.icons.outlined.Sync
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -58,6 +70,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -72,7 +85,11 @@ import com.pengnini.app.data.media.ThumbnailCache
 import com.pengnini.app.data.secure.HandyKeyStore
 import com.pengnini.app.data.secure.LockPattern
 import com.pengnini.app.ui.lock.PatternLock
+import com.pengnini.app.ui.theme.Radius
+import com.pengnini.app.ui.theme.Space
+import com.pengnini.app.ui.theme.TextSize
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -94,21 +111,41 @@ private val Categories = listOf(
     Category("subtitle", "자막", Icons.Outlined.ClosedCaption),
     Category("security", "보안", Icons.Outlined.Security),
     Category("system", "시스템", Icons.Outlined.Build),
+    Category("lab", "실험실", Icons.Outlined.Science),
 )
+
+/**
+ * 여덟 줄이 한 덩어리로 늘어서면 어느 것이 어느 것인지 매번 처음부터 읽게 된다.
+ * 드릴다운 구조는 그대로 두고, 성격이 같은 것끼리만 묶어 훑는 단위를 줄인다.
+ */
+private val CategoryGroups = listOf(
+    "기기" to listOf("handy", "script"),
+    "재생" to listOf("playback", "gesture", "subtitle"),
+    "앱" to listOf("security", "system", "lab"),
+).map { (title, keys) -> title to keys.mapNotNull { k -> Categories.firstOrNull { it.key == k } } }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
+    showBack: Boolean = true,
     onBack: () -> Unit = {},
     onOpenCategory: (String) -> Unit = {},
 ) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("설정", fontWeight = FontWeight.ExtraBold) },
+                title = {
+                    Text(
+                        "설정",
+                        fontSize = TextSize.screenTitle,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "뒤로")
+                    if (showBack) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "뒤로")
+                        }
                     }
                 },
             )
@@ -118,22 +155,63 @@ fun SettingsScreen(
             modifier = Modifier
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(horizontal = Space.md),
         ) {
-            Categories.forEach { cat ->
-                OutlinedCard(modifier = Modifier.fillMaxWidth()) {
-                    ListItem(
-                        headlineContent = { Text(cat.title) },
-                        leadingContent = { Icon(cat.icon, null, tint = MaterialTheme.colorScheme.primary) },
-                        trailingContent = {
-                            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null)
-                        },
-                        modifier = Modifier.clickableRow { onOpenCategory(cat.key) },
-                    )
+            CategoryGroups.forEach { (groupTitle, items) ->
+                Text(
+                    text = groupTitle,
+                    fontSize = TextSize.support,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(
+                        start = Space.xs,
+                        top = Space.lg,
+                        bottom = Space.sm,
+                    ),
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(Radius.card))
+                        .background(MaterialTheme.colorScheme.surface),
+                ) {
+                    items.forEachIndexed { index, cat ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickableRow { onOpenCategory(cat.key) }
+                                .padding(horizontal = Space.md, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                cat.icon,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Spacer(Modifier.width(Space.md))
+                            Text(
+                                text = cat.title,
+                                fontSize = TextSize.body,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Icon(
+                                Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                        if (index != items.lastIndex) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 48.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                            )
+                        }
+                    }
                 }
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(Space.xl))
         }
     }
 }
@@ -148,7 +226,13 @@ fun SettingsCategoryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(title, fontWeight = FontWeight.ExtraBold) },
+                title = {
+                    Text(
+                        title,
+                        fontSize = TextSize.screenTitle,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "뒤로")
@@ -172,6 +256,7 @@ fun SettingsCategoryScreen(
                 "subtitle" -> SubtitleContent()
                 "security" -> SecurityContent()
                 "system" -> SystemContent()
+                "lab" -> LabContent()
             }
             Spacer(Modifier.height(24.dp))
         }
@@ -753,6 +838,150 @@ private val LanguageOptions = listOf(
 )
 
 @Composable
+private fun LabContent() {
+    val prefs = Container.prefs
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val sharpen by prefs.labSharpen.collectAsStateWithLifecycle(initialValue = false)
+    val strength by prefs.labSharpenStrength.collectAsStateWithLifecycle(initialValue = "medium")
+    val shaderKey by prefs.labSharpenShader.collectAsStateWithLifecycle(initialValue = "cas")
+    val handyPrewarm by prefs.labHandyPrewarm.collectAsStateWithLifecycle(initialValue = false)
+    val heatmap by prefs.labScriptHeatmap.collectAsStateWithLifecycle(initialValue = false)
+    var strengthDialogOpen by remember { mutableStateOf(false) }
+    var shaderDialogOpen by remember { mutableStateOf(false) }
+    // 설정 저장은 비동기라, 바꾸자마자 재시작하면 디스크에 닿기 전에 프로세스가 죽을 수 있다.
+    // 마지막 쓰기를 붙잡아 두고 재시작 전에 기다린다.
+    var pendingWrite by remember { mutableStateOf<Job?>(null) }
+    fun write(block: suspend () -> Unit) {
+        pendingWrite = scope.launch { block() }
+    }
+
+    Text(
+        text = "검증 중인 기능이라 기기에 따라 오류가 날 수 있습니다. " +
+            "문제가 생길 시, 해당 기능을 끄고 앱을 다시시작해주세요.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 4.dp),
+    )
+
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        Column {
+            BoundSwitchRow(
+                icon = Icons.Outlined.AutoAwesome,
+                title = "선명하게 보정",
+                subtitle = "화면에 맞춰 늘릴 때 선명하게",
+                checked = sharpen,
+                onCheckedChange = { write { prefs.setLabSharpen(it) } },
+            )
+            if (sharpen) {
+                SelectableRow(
+                    icon = Icons.Outlined.Category,
+                    title = "셰이더",
+                    value = SharpenShaderOptions.firstOrNull { it.first == shaderKey }?.second
+                        ?: shaderKey,
+                    onClick = { shaderDialogOpen = true },
+                )
+                SelectableRow(
+                    icon = Icons.Outlined.Tune,
+                    title = "보정 강도",
+                    value = SharpenStrengthOptions.firstOrNull { it.first == strength }?.second
+                        ?: strength,
+                    onClick = { strengthDialogOpen = true },
+                )
+            }
+        }
+    }
+
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        BoundSwitchRow(
+            icon = Icons.Outlined.BarChart,
+            title = "스크립트 강도 히트맵",
+            subtitle = "시크바 아래에 격한 구간을 표시",
+            checked = heatmap,
+            onCheckedChange = { write { prefs.setLabScriptHeatmap(it) } },
+        )
+    }
+
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        BoundSwitchRow(
+            icon = Icons.Outlined.Bolt,
+            title = "Handy 미리 연결",
+            subtitle = "첫 재생이 빨라집니다",
+            checked = handyPrewarm,
+            onCheckedChange = { write { prefs.setLabHandyPrewarm(it) } },
+        )
+    }
+
+    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        ListItem(
+            headlineContent = { Text("앱 다시 시작") },
+            supportingContent = { Text("바꾼 설정을 지금 적용") },
+            leadingContent = { Icon(Icons.Outlined.RestartAlt, null) },
+            modifier = Modifier.clickableRow {
+                scope.launch {
+                    pendingWrite?.join()
+                    restartApp(context)
+                }
+            },
+        )
+    }
+
+    if (shaderDialogOpen) {
+        RadioDialog(
+            title = "셰이더",
+            options = SharpenShaderOptions,
+            selected = shaderKey,
+            onDismiss = { shaderDialogOpen = false },
+            onSelect = {
+                write { prefs.setLabSharpenShader(it) }
+                shaderDialogOpen = false
+            },
+        )
+    }
+
+    if (strengthDialogOpen) {
+        RadioDialog(
+            title = "보정 강도",
+            options = SharpenStrengthOptions,
+            selected = strength,
+            onDismiss = { strengthDialogOpen = false },
+            onSelect = {
+                write { prefs.setLabSharpenStrength(it) }
+                strengthDialogOpen = false
+            },
+        )
+    }
+}
+
+/**
+ * 앱을 즉시 다시 띄운다. 실험실 설정 중에는 앱이 뜰 때 한 번만 읽는 값이 있어
+ * (Handy 미리 연결) 재시작해야 반영된다.
+ *
+ * 새 화면을 실제로 띄우는 데 성공했을 때만 프로세스를 끝낸다 —
+ * 실패했는데 exit까지 하면 앱이 그냥 사라지고 돌아오지 않는다.
+ */
+private fun restartApp(context: Context) {
+    val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+        ?: return
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+    val launched = runCatching { context.startActivity(intent) }.isSuccess
+    if (launched) Runtime.getRuntime().exit(0)
+}
+
+private val SharpenShaderOptions = listOf(
+    "cas" to "CAS · 대비 적응형",
+    "rcas" to "RCAS · 노이즈 억제",
+    "luma" to "LumaSharpen · 색 번짐 없음",
+    "unsharp" to "언샤프 마스크 · 가장 강함",
+)
+
+private val SharpenStrengthOptions = listOf(
+    "low" to "약",
+    "medium" to "중",
+    "high" to "강",
+)
+
+@Composable
 private fun SystemContent() {
     val context = LocalContext.current
     val prefs = Container.prefs
@@ -768,7 +997,7 @@ private fun SystemContent() {
             BoundSwitchRow(
                 icon = Icons.Outlined.Videocam,
                 title = "비디오 하드웨어 가속",
-                subtitle = "디바이스 하드웨어 디코더 우선 사용",
+                subtitle = "끄면 소프트웨어 디코더 우선 · 다음 재생부터 적용",
                 checked = hw,
                 onCheckedChange = { scope.launch { prefs.setHwAccel(it) } },
             )

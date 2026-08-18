@@ -23,8 +23,8 @@ android {
         applicationId = "com.pengnini.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.1.3"
+        versionCode = 8
+        versionName = "1.2.0"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -90,6 +90,7 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.session)
+    implementation(libs.androidx.media3.effect)
 
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)

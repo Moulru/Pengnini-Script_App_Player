@@ -32,6 +32,9 @@ class SmbManager(private val credentials: SmbCredentialStore) {
     private val sessions = HashMap<String, Session>()
     private val shares = HashMap<String, DiskShare>()
 
+    /** host별로 열려 있는 파일 핸들 수. 재생 중인 연결을 실수로 끊지 않기 위한 것. */
+    private val openHandles = HashMap<String, Int>()
+
     /**
      * 같은 (host/share)의 DiskShare를 재사용하고, 끊겼으면 재연결한다.
      * connection이 죽었으면 그 host의 session·share 캐시까지 함께 폐기하고(stale 재사용 방지) 새로 연결한다.
@@ -80,10 +83,13 @@ class SmbManager(private val credentials: SmbCredentialStore) {
             }
     }
 
-    /** 랜덤 액세스용 File 핸들(ExoPlayer DataSource에서 사용). 사용 후 close 필수. */
+    /**
+     * 랜덤 액세스용 File 핸들(ExoPlayer DataSource에서 사용).
+     * 사용 후 close + [notifyFileClosed] 필수 — 안 하면 그 host 연결이 정리되지 않을 뿐 오작동은 없다.
+     */
     fun openFile(fileUri: String): File {
         val p = parse(fileUri)
-        return diskShare(p).openFile(
+        val handle = diskShare(p).openFile(
             p.sharePath,
             EnumSet.of(AccessMask.GENERIC_READ),
             null,
@@ -91,6 +97,16 @@ class SmbManager(private val credentials: SmbCredentialStore) {
             SMB2CreateDisposition.FILE_OPEN,
             null,
         )
+        synchronized(this) { openHandles[p.host] = (openHandles[p.host] ?: 0) + 1 }
+        return handle
+    }
+
+    /** [openFile]로 받은 핸들을 닫은 뒤 호출. 사용 중 판단에만 쓰인다. */
+    @Synchronized
+    fun notifyFileClosed(fileUri: String) {
+        val host = runCatching { parse(fileUri).host }.getOrNull() ?: return
+        val left = (openHandles[host] ?: 0) - 1
+        if (left <= 0) openHandles.remove(host) else openHandles[host] = left
     }
 
     /** 작은 파일(스크립트) 통째 읽기 — File 핸들을 확실히 닫는다. */
@@ -100,7 +116,24 @@ class SmbManager(private val credentials: SmbCredentialStore) {
             file.inputStream.use { it.readBytes() }
         } finally {
             runCatching { file.close() }
+            notifyFileClosed(fileUri)
         }
+    }
+
+    /**
+     * 한 host의 연결·세션·공유를 닫는다(폴더 제거 등으로 더 쓰지 않게 됐을 때).
+     * 재생 중인 스트림이 그 host를 쓰고 있으면 닫지 않는다 — 끊으면 재생이 깨진다.
+     * 이 경우 연결은 그대로 남고, 다음 [diskShare] 호출 때 죽은 연결로 판정되면 정리된다.
+     */
+    @Synchronized
+    fun releaseHost(host: String) {
+        if ((openHandles[host] ?: 0) > 0) return
+        val prefix = "${host.lowercase()}/"
+        shares.keys.filter { it.startsWith(prefix) }.toList().forEach { key ->
+            runCatching { shares.remove(key)?.close() }
+        }
+        runCatching { sessions.remove(host)?.close() }
+        runCatching { connections.remove(host)?.close() }
     }
 
     @Synchronized

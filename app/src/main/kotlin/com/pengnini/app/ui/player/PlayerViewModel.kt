@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -30,6 +31,19 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+
+/**
+ * 시크바 아래에 그릴 스크립트 강도. [buckets]는 0..[endMs]를 균등 분할한 구간별 강도(0..1).
+ * 재생 위치 표시가 아니라 "어디가 격한 구간인지"를 미리 보여주는 용도다.
+ */
+data class ScriptHeatmap(val endMs: Long, val buckets: List<Float>)
+
+/** 플레이어 생성 시점에 확정된 보정 설정. */
+data class SharpenSetting(
+    val enabled: Boolean,
+    val shader: SharpenShader,
+    val strength: Float,
+)
 
 sealed class HandySyncState {
     data object Idle : HandySyncState()
@@ -54,6 +68,22 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
 
     private val _video = MutableStateFlow<VideoEntity?>(null)
     val video: StateFlow<VideoEntity?> = _video
+
+    /** 하드웨어 가속 설정. null = 아직 로드 전 — 값이 정해진 뒤에 플레이어를 만든다. */
+    private val _hwAccel = MutableStateFlow<Boolean?>(null)
+    val hwAccel: StateFlow<Boolean?> = _hwAccel
+
+    /** 실험실: 선명하게 보정. 꺼져 있으면 null. 플레이어 생성 전에 확정돼야 한다. */
+    private val _sharpen = MutableStateFlow<SharpenSetting?>(null)
+    val sharpen: StateFlow<SharpenSetting?> = _sharpen
+
+    /** 영상·설정을 읽지 못했다. true면 화면이 스피너 대신 오류를 보여준다. */
+    private val _loadError = MutableStateFlow(false)
+    val loadError: StateFlow<Boolean> = _loadError
+
+    /** 실험실: 스크립트 강도 히트맵. 꺼져 있거나 스크립트가 없으면 null. */
+    private val _heatmap = MutableStateFlow<ScriptHeatmap?>(null)
+    val heatmap: StateFlow<ScriptHeatmap?> = _heatmap
 
     private val _prevUri = MutableStateFlow<String?>(null)
     val prevUri: StateFlow<String?> = _prevUri
@@ -123,15 +153,34 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
         viewModelScope.launch {
             // alwaysStartFromBeginning ON이면 lastPositionMs를 0으로 덮어 ExoPlayer 초기 seekTo가 일어나지 않게 함.
             // DB의 실제 값은 손대지 않음(다음 정지 시 다시 갱신됨).
-            val v = repo.getVideo(videoUri)
-            val fromStart = prefs.alwaysStartFromBeginning.first()
-            _video.value = if (v != null && fromStart) v.copy(lastPositionMs = 0L) else v
-            val list = runCatching { repo.getAllVideoUrisOrdered() }.getOrDefault(emptyList())
-            val idx = list.indexOf(videoUri)
-            if (idx >= 0) {
-                _prevUri.value = list.getOrNull(idx - 1)
-                _nextUri.value = list.getOrNull(idx + 1)
-            }
+            // DB·설정 읽기가 실패해도 화면이 스피너로 멈춰 있으면 안 된다.
+            val loaded = runCatching {
+                val v = repo.getVideo(videoUri)
+                val fromStart = prefs.alwaysStartFromBeginning.first()
+                _hwAccel.value = prefs.hwAccel.first()
+                _sharpen.value = SharpenSetting(
+                    enabled = prefs.labSharpen.first(),
+                    shader = SharpenShader.fromKey(prefs.labSharpenShader.first()),
+                    strength = SharpenEffect.strengthOf(prefs.labSharpenStrength.first()),
+                )
+                _video.value = if (v != null && fromStart) v.copy(lastPositionMs = 0L) else v
+                if (v != null) {
+                    val (prev, next) = runCatching { repo.getAdjacentUris(v) }
+                        .getOrDefault(null to null)
+                    _prevUri.value = prev
+                    _nextUri.value = next
+                }
+                v
+            }.getOrNull()
+            // 영상 행이 없는 경우(삭제된 뒤 열림)도 오류로 다룬다.
+            if (loaded == null) _loadError.value = true
+        }
+        // 실험실: 히트맵. 기기 연결과 무관하게 스크립트만 있으면 그린다.
+        viewModelScope.launch {
+            if (!prefs.labScriptHeatmap.first()) return@launch
+            val scriptUri = _video.filterNotNull().first().funscriptUri ?: return@launch
+            val bytes = readScriptBytes(scriptUri) ?: return@launch
+            _heatmap.value = withContext(Dispatchers.Default) { buildHeatmap(bytes) }
         }
         // syncState가 Ready로 전환되면 현재 세기 범위를 기기에 동기화
         viewModelScope.launch {
@@ -168,16 +217,7 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
                     // 0↔99 위치 반복 + 영상 배속 반영. 반전은 대칭이라 적용 불필요.
                     transformFunscript(generateDefaultScript(durMs, cpm), false, speed)
                 } else {
-                    val rawBytes = withContext(Dispatchers.IO) {
-                        runCatching {
-                            if (SmbManager.isSmb(scriptUri!!)) {
-                                Container.smbManager.readBytes(scriptUri)
-                            } else {
-                                getApplication<Application>().contentResolver
-                                    .openInputStream(Uri.parse(scriptUri))?.use { it.readBytes() }
-                            }
-                        }.getOrNull()
-                    } ?: run {
+                    val rawBytes = readScriptBytes(scriptUri!!) ?: run {
                         _syncState.value = HandySyncState.Error("스크립트 읽기 실패")
                         return@launch
                     }
@@ -201,6 +241,57 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
                 _syncState.value = HandySyncState.Error(e.message ?: "오류")
             }
         }
+    }
+
+    /** 로컬(SAF)·SMB 양쪽에서 스크립트 파일을 통째로 읽는다. 실패 시 null. */
+    private suspend fun readScriptBytes(scriptUri: String): ByteArray? =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                if (SmbManager.isSmb(scriptUri)) {
+                    Container.smbManager.readBytes(scriptUri)
+                } else {
+                    getApplication<Application>().contentResolver
+                        .openInputStream(Uri.parse(scriptUri))?.use { it.readBytes() }
+                }
+            }.getOrNull()
+        }
+
+    /**
+     * 스크립트를 구간별 강도로 요약한다.
+     * 강도 = 그 구간에서 위치가 움직인 총량. 구간 길이가 모두 같으므로 그대로 속도에 비례한다.
+     * 정규화 기준은 최댓값이 아니라 상위 5% 지점 — 스파이크 하나 때문에 나머지가 전부 눌리는 걸 막는다.
+     */
+    private fun buildHeatmap(bytes: ByteArray): ScriptHeatmap? {
+        val actions = runCatching {
+            Json.parseToJsonElement(String(bytes)).jsonObject["actions"]?.jsonArray
+        }.getOrNull() ?: return null
+
+        val points = actions.mapNotNull { el ->
+            val obj = runCatching { el.jsonObject }.getOrNull() ?: return@mapNotNull null
+            val at = obj["at"]?.jsonPrimitive?.longOrNull ?: return@mapNotNull null
+            val pos = obj["pos"]?.jsonPrimitive?.intOrNull ?: return@mapNotNull null
+            at to pos
+        }.sortedBy { it.first }
+        if (points.size < 2) return null
+
+        val endMs = points.last().first
+        if (endMs <= 0L) return null
+
+        val bucketMs = endMs.toDouble() / HEATMAP_BUCKETS
+        if (bucketMs <= 0.0) return null
+        val travel = DoubleArray(HEATMAP_BUCKETS)
+        for (i in 1 until points.size) {
+            val (at, pos) = points[i]
+            val delta = kotlin.math.abs(pos - points[i - 1].second)
+            val idx = (at / bucketMs).toInt().coerceIn(0, HEATMAP_BUCKETS - 1)
+            travel[idx] += delta.toDouble()
+        }
+
+        val nonZero = travel.filter { it > 0.0 }.sorted()
+        if (nonZero.isEmpty()) return null
+        val ref = nonZero[(nonZero.size * 95 / 100).coerceAtMost(nonZero.size - 1)]
+        if (ref <= 0.0) return null
+        return ScriptHeatmap(endMs, travel.map { (it / ref).coerceIn(0.0, 1.0).toFloat() })
     }
 
     /** 스크립트 없는 영상용 기본 패턴: 0↔99 위치 반복(cpm=분당 반복 수). 세기 범위는 기기의 /slide가 적용. */
@@ -370,5 +461,6 @@ class PlayerViewModel(app: Application, handle: SavedStateHandle) : AndroidViewM
     private companion object {
         const val CMD_MAX_ATTEMPTS = 3      // 최초 1회 + 재시도 2회
         const val CMD_RETRY_DELAY_MS = 300L
+        const val HEATMAP_BUCKETS = 180     // 시크바 폭 대비 충분한 해상도
     }
 }

@@ -56,6 +56,13 @@ class PrefsStore(context: Context) {
     val defaultScriptEnabled: Flow<Boolean> = ds.data.map { it[KEY_DEFAULT_SCRIPT_ENABLED] ?: false }
     val defaultScriptCpm: Flow<Int> = ds.data.map { it[KEY_DEFAULT_SCRIPT_CPM] ?: 60 }
 
+    // 실험실 — 기본 전부 꺼짐. 기기·환경에 따라 결과가 갈리는 기능만 둔다.
+    val labSharpen: Flow<Boolean> = ds.data.map { it[KEY_LAB_SHARPEN] ?: false }
+    val labSharpenStrength: Flow<String> = ds.data.map { it[KEY_LAB_SHARPEN_STRENGTH] ?: "medium" }
+    val labSharpenShader: Flow<String> = ds.data.map { it[KEY_LAB_SHARPEN_SHADER] ?: "cas" }
+    val labHandyPrewarm: Flow<Boolean> = ds.data.map { it[KEY_LAB_HANDY_PREWARM] ?: false }
+    val labScriptHeatmap: Flow<Boolean> = ds.data.map { it[KEY_LAB_SCRIPT_HEATMAP] ?: false }
+
     // Security
     val appLockEnabled: Flow<Boolean> = ds.data.map { it[KEY_APP_LOCK_ENABLED] ?: false }
     /** 패턴 판정 로직(중간점 자동 포함) 변경에 따른 기존 패턴 1회 초기화 완료 여부. */
@@ -102,6 +109,12 @@ class PrefsStore(context: Context) {
     suspend fun setDefaultScriptEnabled(v: Boolean) { ds.edit { it[KEY_DEFAULT_SCRIPT_ENABLED] = v } }
     suspend fun setDefaultScriptCpm(v: Int) { ds.edit { it[KEY_DEFAULT_SCRIPT_CPM] = v.coerceIn(30, 200) } }
 
+    suspend fun setLabSharpen(v: Boolean) { ds.edit { it[KEY_LAB_SHARPEN] = v } }
+    suspend fun setLabSharpenStrength(v: String) { ds.edit { it[KEY_LAB_SHARPEN_STRENGTH] = v } }
+    suspend fun setLabSharpenShader(v: String) { ds.edit { it[KEY_LAB_SHARPEN_SHADER] = v } }
+    suspend fun setLabHandyPrewarm(v: Boolean) { ds.edit { it[KEY_LAB_HANDY_PREWARM] = v } }
+    suspend fun setLabScriptHeatmap(v: Boolean) { ds.edit { it[KEY_LAB_SCRIPT_HEATMAP] = v } }
+
     suspend fun setAppLockEnabled(v: Boolean) { ds.edit { it[KEY_APP_LOCK_ENABLED] = v } }
     suspend fun setPatternResetDone(v: Boolean) { ds.edit { it[KEY_PATTERN_RESET_DONE] = v } }
 
@@ -130,6 +143,11 @@ class PrefsStore(context: Context) {
         val KEY_SCRIPT_INVERT = booleanPreferencesKey("script_invert")
         val KEY_DEFAULT_SCRIPT_ENABLED = booleanPreferencesKey("default_script_enabled")
         val KEY_DEFAULT_SCRIPT_CPM = intPreferencesKey("default_script_cpm")
+        val KEY_LAB_SHARPEN = booleanPreferencesKey("lab_sharpen")
+        val KEY_LAB_SHARPEN_STRENGTH = stringPreferencesKey("lab_sharpen_strength")
+        val KEY_LAB_SHARPEN_SHADER = stringPreferencesKey("lab_sharpen_shader")
+        val KEY_LAB_HANDY_PREWARM = booleanPreferencesKey("lab_handy_prewarm")
+        val KEY_LAB_SCRIPT_HEATMAP = booleanPreferencesKey("lab_script_heatmap")
         val KEY_APP_LOCK_ENABLED = booleanPreferencesKey("app_lock_enabled")
         val KEY_PATTERN_RESET_DONE = booleanPreferencesKey("pattern_reset_done_intermediate")
     }
