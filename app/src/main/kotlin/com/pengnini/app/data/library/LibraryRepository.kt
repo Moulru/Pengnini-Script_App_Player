@@ -68,11 +68,18 @@ class LibraryRepository(
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
             )
         }
+        // 이미 등록한 폴더를 다시 고르면(URI 표기가 달라도) 새로 등록하지 않고 그 폴더를 재스캔한다.
+        findRegistered(uri.toString())?.let { return scanFolder(it.uri, matchScripts, multiExt, onProgress) }
         val displayName = runCatching {
             DocumentFile.fromTreeUri(context, uri)?.name
         }.getOrNull()
         folderDao.insert(FolderEntity(uri.toString(), displayName))
         return scanFolder(uri.toString(), matchScripts, multiExt, onProgress)
+    }
+
+    private suspend fun findRegistered(uriStr: String): FolderEntity? {
+        val id = folderIdentity(uriStr)
+        return folderDao.getAll().firstOrNull { folderIdentity(it.uri) == id }
     }
 
     suspend fun addSmbFolder(
@@ -87,10 +94,12 @@ class LibraryRepository(
         onProgress: (Int) -> Unit = {},
     ): Int {
         smbCredentials.save(host, SmbCredential(username, password, domain))
-        val folderUri = SmbManager.buildUri(host, share, path)
-        val displayName = listOf(host, share, path.trim('/'))
-            .filter { it.isNotBlank() }.joinToString("/")
-        folderDao.insert(FolderEntity(folderUri, displayName))
+        val built = SmbManager.buildUri(host, share, path)
+        val folderUri = findRegistered(built)?.uri ?: built.also {
+            val displayName = listOf(host, share, path.trim('/'))
+                .filter { it.isNotBlank() }.joinToString("/")
+            folderDao.insert(FolderEntity(it, displayName))
+        }
         scanFolder(folderUri, matchScripts, multiExt, onProgress)
         return videoDao.getByFolder(folderUri).size
     }
@@ -125,30 +134,63 @@ class LibraryRepository(
         // video_user_data는 의도적으로 보존 → 같은 폴더 재등록 시 평점/태그 복원
     }
 
-    /** 폴더를 스캔해 DB에 반영하고, 찾은 영상 수를 반환한다. */
+    /**
+     * 폴더를 스캔해 DB에 반영하고, 찾은 영상 수를 반환한다.
+     *
+     * - 같은 파일이 다른 등록 폴더에도 잡히면(상위·하위 폴더를 둘 다 등록, 같은 폴더를 다른 경로로 등록 등)
+     *   먼저 등록한 폴더 쪽 한 줄만 남긴다.
+     * - 끝까지 읽은 스캔이면 이 폴더에서 더 이상 보이지 않는 영상(삭제·이동·이름 변경)을 목록에서 뺀다.
+     *   사용자 데이터(video_user_data)는 남겨 두므로 파일이 돌아오면 평점·태그도 돌아온다.
+     */
     suspend fun scanFolder(
         uriStr: String,
         matchScripts: Boolean = true,
         multiExt: Boolean = false,
         onProgress: (Int) -> Unit = {},
     ): Int {
-        val items = if (SmbManager.isSmb(uriStr)) {
+        val result = if (SmbManager.isSmb(uriStr)) {
             scanner.scanSmb(uriStr, multiExt, onProgress)
         } else {
             scanner.scan(Uri.parse(uriStr), matchScripts, multiExt, onProgress)
         }
         // 결과가 비어도 "언제 확인했는지"는 남겨야 폴더 목록이 계속 '스캔 안 함'으로 보이지 않는다.
         folderDao.setLastScannedAt(uriStr, System.currentTimeMillis())
-        if (items.isEmpty()) return 0
+        // 하나도 못 읽었으면(권한 해제·네트워크 끊김) 기존 목록을 건드리지 않는다.
+        if (result.videos.isEmpty() && !result.complete) return 0
+
+        // 등록 순서. 같은 파일이 여러 폴더에 걸치면 먼저 등록한 폴더가 갖는다.
+        val order = folderDao.getAll().sortedBy { it.addedAt }.map { it.uri }
+        fun rankOf(folderUri: String) = order.indexOf(folderUri).let { if (it < 0) Int.MAX_VALUE else it }
+        val myRank = rankOf(uriStr)
+        val elsewhere = videoDao.getOutsideFolder(uriStr).groupBy { fileIdentity(it.uri) }
+        val seen = HashSet<String>()
+        val evicted = ArrayList<String>() // 이 폴더가 우선이라 지울 다른 폴더의 중복 행
+        val items = result.videos.filter { fresh ->
+            val key = fileIdentity(fresh.uri)
+            if (!seen.add(key)) return@filter false
+            val others = elsewhere[key].orEmpty()
+            if (others.any { rankOf(it.folderUri) < myRank }) return@filter false
+            others.mapTo(evicted) { it.uri }
+            true
+        }
+
         // 사용자 데이터 복원: 우선 DB(user_data, uri 정확 매칭) → 없으면 사이드카(title 매칭, 재설치·이식 대비)
         val userData = userDataDao.getAll().associateBy { it.uri }
         val sidecar = metadataStore.read(uriStr)
         val existing = videoDao.getByFolder(uriStr).associateBy { it.uri }
+        val keptUris = items.mapTo(HashSet()) { it.uri }
+        val stale = if (result.complete) existing.keys.filter { it !in keptUris } else emptyList()
         val merged = items.map { fresh ->
-            // 기존 행이 있으면 addedAt(정렬 기준)과 수동 연결 스크립트를 보존
+            // 기존 행이 있으면 addedAt(정렬 기준)을 보존
             val prior = existing[fresh.uri]
+            val ud = userData[fresh.uri]
             val base = fresh.copy(
-                funscriptUri = fresh.funscriptUri ?: prior?.funscriptUri,
+                // 수동 연결(user_data)이 자동 매칭보다 우선 — 재스캔이 사용자가 고른 스크립트를 덮지 않는다.
+                // 기존 행의 값은 user_data에 백업되기 전(구버전)의 수동 연결일 때만 이어받는다.
+                // 이 폴더에서 자동 매칭됐던 값이면 이번 스캔 결과가 정답이므로 버린다(지워진 스크립트가 남지 않게).
+                funscriptUri = ud?.funscriptUri
+                    ?: fresh.funscriptUri
+                    ?: prior?.funscriptUri?.takeUnless { isScannedUnder(it, uriStr) },
                 addedAt = prior?.addedAt ?: fresh.addedAt,
                 // 스캔은 길이·해상도를 채우지 않으므로(파일을 열어야 함)
                 // 썸네일 생성·재생 때 확보해 둔 기존 값을 덮어쓰지 않는다.
@@ -156,7 +198,6 @@ class LibraryRepository(
                 width = prior?.width?.takeIf { it > 0 } ?: fresh.width,
                 height = prior?.height?.takeIf { it > 0 } ?: fresh.height,
             )
-            val ud = userData[base.uri]
             if (ud != null) {
                 base.copy(
                     rating = ud.rating,
@@ -164,8 +205,6 @@ class LibraryRepository(
                     tags = ud.tags,
                     lastPositionMs = ud.lastPositionMs,
                     customTitle = ud.customTitle,
-                    // 자동 매칭(fresh)·기존 행(prior)이 없으면 영속 백업한 수동 연결을 복원
-                    funscriptUri = base.funscriptUri ?: ud.funscriptUri,
                 )
             } else {
                 val side = sidecar[base.title]
@@ -187,7 +226,13 @@ class LibraryRepository(
                 }
             }
         }
-        videoDao.upsertAll(merged)
+        val removed = stale + evicted
+        db.withTransaction {
+            // SQLite 바인딩 변수 한도(999) 아래로 나눠 지운다.
+            removed.chunked(500).forEach { videoDao.deleteAll(it) }
+            videoDao.upsertAll(merged)
+        }
+        removed.forEach { ThumbnailCache.remove(context, it) }
         return merged.size
     }
 
@@ -254,12 +299,29 @@ class LibraryRepository(
 
     /** 스크립트 수동 연결/해제. scriptUri는 SAF로 영구 read 권한을 미리 확보해 둔다. */
     suspend fun setFunscript(uri: String, scriptUri: String?) {
+        val previous = videoDao.get(uri)?.funscriptUri
         // videos(표시용) + user_data(영속 백업)에 함께 기록 → 폴더 재등록 시 수동 연결 복원
         db.withTransaction {
             videoDao.setFunscript(uri, scriptUri)
             userDataDao.ensure(VideoUserDataEntity(uri))
             userDataDao.updateFunscript(uri, scriptUri)
         }
+        if (previous != null && previous != scriptUri) releaseScriptPermission(previous)
+    }
+
+    /**
+     * 더 이상 어느 영상도 쓰지 않는 수동 연결 스크립트의 영구 읽기 권한을 반납한다.
+     * 영구 권한은 앱당 개수 한도(구버전 안드로이드 128개)가 있어, 연결을 바꿀 때마다 쌓이면
+     * 결국 새로 연결한 스크립트가 권한을 못 받아 앱 재시작 후 읽히지 않게 된다.
+     * 폴더 트리로 얻은 권한(자동 매칭 스크립트)은 목록에 개별로 없으므로 건드리지 않는다.
+     */
+    private suspend fun releaseScriptPermission(scriptUri: String) {
+        if (SmbManager.isSmb(scriptUri)) return
+        if (videoDao.countByFunscript(scriptUri) > 0 || userDataDao.countByFunscript(scriptUri) > 0) return
+        val u = Uri.parse(scriptUri)
+        val resolver = context.contentResolver
+        if (resolver.persistedUriPermissions.none { it.uri == u }) return
+        runCatching { resolver.releasePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
     }
 
     /** 재생 중 확보된 길이·해상도를 DB에 기록(스캔 시 못 구한 SMB 영상 보완). */

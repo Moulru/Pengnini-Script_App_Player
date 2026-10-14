@@ -21,6 +21,12 @@ import kotlin.coroutines.CoroutineContext
  */
 class MediaScanner(private val context: Context, private val smb: SmbManager) {
 
+    /**
+     * 스캔 결과. [complete]가 false면 읽지 못한 폴더가 있었다는 뜻이라
+     * 목록에 없는 영상을 "사라졌다"고 판단해 지우면 안 된다.
+     */
+    data class ScanResult(val videos: List<VideoEntity>, val complete: Boolean)
+
     /** 스캔 중 만난 파일 하나. 이름·크기·MIME을 커서에서 한 번에 읽어 온다. */
     private data class Entry(
         val name: String,
@@ -61,14 +67,14 @@ class MediaScanner(private val context: Context, private val smb: SmbManager) {
         matchScripts: Boolean = true,
         multiExt: Boolean = false,
         onProgress: (Int) -> Unit = {},
-    ): List<VideoEntity> = withContext(Dispatchers.IO) {
+    ): ScanResult = withContext(Dispatchers.IO) {
         val ctx = currentCoroutineContext()
         val videos = mutableListOf<Entry>()
         val scripts = SidecarIndex()     // .funscript (우선)
         val altScripts = SidecarIndex()  // .json (multiExt 시 보조)
         val subs = SidecarIndex()
 
-        walkTree(treeUri, ctx) { entry ->
+        val complete = walkTree(treeUri, ctx) { entry ->
             val name = entry.name
             // 사이드카 메타데이터 파일(.pengnini.json / .pengnini.tmp)은 스크립트로 오인 안 되게 제외
             if (name.startsWith(".pengnini", ignoreCase = true)) return@walkTree
@@ -88,7 +94,7 @@ class MediaScanner(private val context: Context, private val smb: SmbManager) {
         val now = System.currentTimeMillis()
         // 발견 순서를 1ms씩 어긋나게 담는다. 전부 같은 값이면 '추가순' 정렬이
         // 동점 처리(제목순)로 떨어져 사실상 제목순과 구분이 안 된다.
-        videos.mapIndexed { index, v ->
+        val result = videos.mapIndexed { index, v ->
             val base = v.name.substringBeforeLast('.', v.name).lowercase()
             VideoEntity(
                 uri = v.uri,
@@ -108,6 +114,7 @@ class MediaScanner(private val context: Context, private val smb: SmbManager) {
                 bucketPath = v.dirPath,
             )
         }
+        ScanResult(result, complete)
     }
 
     /** SMB 네트워크 폴더 스캔. 길이·해상도는 네트워크 비용 때문에 0으로 두고 재생 시 채운다. */
@@ -115,14 +122,14 @@ class MediaScanner(private val context: Context, private val smb: SmbManager) {
         folderUri: String,
         multiExt: Boolean = false,
         onProgress: (Int) -> Unit = {},
-    ): List<VideoEntity> = withContext(Dispatchers.IO) {
+    ): ScanResult = withContext(Dispatchers.IO) {
         val ctx = currentCoroutineContext()
         val videos = mutableListOf<Pair<Entry, SmbManager.SmbEntry>>()
         val scripts = SidecarIndex()
         val altScripts = SidecarIndex()
         val subs = SidecarIndex()
 
-        walkSmb(folderUri, folderUri, "") { childUri, dirUri, dirPath, entry ->
+        val complete = walkSmb(folderUri, folderUri, "") { childUri, dirUri, dirPath, entry ->
             ctx.ensureActive()
             val name = entry.name
             if (name.startsWith(".pengnini", ignoreCase = true)) return@walkSmb
@@ -140,7 +147,7 @@ class MediaScanner(private val context: Context, private val smb: SmbManager) {
         }
 
         val now = System.currentTimeMillis()
-        videos.mapIndexed { index, (v, entry) ->
+        val result = videos.mapIndexed { index, (v, entry) ->
             val base = entry.name.substringBeforeLast('.', entry.name).lowercase()
             VideoEntity(
                 uri = v.uri,
@@ -158,26 +165,30 @@ class MediaScanner(private val context: Context, private val smb: SmbManager) {
                 bucketPath = v.dirPath,
             )
         }
+        ScanResult(result, complete)
     }
 
+    /** 반환값: 모든 디렉토리를 읽었으면 true. */
     private fun walkSmb(
         folderUri: String,
         dirUri: String,
         dirPath: String,
         depth: Int = 0,
         visit: (childUri: String, dirUri: String, dirPath: String, entry: SmbManager.SmbEntry) -> Unit,
-    ) {
-        if (depth > MAX_SCAN_DEPTH) return // 심링크/DFS 순환에서 무한 재귀(StackOverflow) 방지
-        val entries = runCatching { smb.list(dirUri) }.getOrDefault(emptyList())
+    ): Boolean {
+        if (depth > MAX_SCAN_DEPTH) return true // 심링크/DFS 순환에서 무한 재귀(StackOverflow) 방지
+        val entries = runCatching { smb.list(dirUri) }.getOrNull() ?: return false
+        var complete = true
         entries.forEach { entry ->
             val childUri = SmbManager.childUri(dirUri, entry.name)
             if (entry.isDirectory) {
                 val childPath = if (dirPath.isEmpty()) entry.name else "$dirPath/${entry.name}"
-                walkSmb(folderUri, childUri, childPath, depth + 1, visit)
+                if (!walkSmb(folderUri, childUri, childPath, depth + 1, visit)) complete = false
             } else {
                 visit(childUri, dirUri, dirPath, entry)
             }
         }
+        return complete
     }
 
     /**
@@ -185,10 +196,12 @@ class MediaScanner(private val context: Context, private val smb: SmbManager) {
      * DocumentFile은 name·size·type을 각각 별도 ContentResolver 쿼리로 가져와서
      * 파일 수에 비례해 IPC가 폭증한다. 여기서는 디렉토리당 쿼리 1회로 끝낸다.
      * `.nomedia`·숨김 파일을 걸러내지 않는다(MediaStore를 거치지 않으므로 영향도 없다).
+     * 반환값: 모든 디렉토리를 읽었으면 true.
      */
-    private fun walkTree(treeUri: Uri, ctx: CoroutineContext, visit: (Entry) -> Unit) {
+    private fun walkTree(treeUri: Uri, ctx: CoroutineContext, visit: (Entry) -> Unit): Boolean {
         val resolver = context.contentResolver
-        val rootId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull() ?: return
+        val rootId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull() ?: return false
+        var complete = true
         // (documentId, 깊이, 루트 기준 상대 경로)
         val queue = ArrayDeque<Triple<String, Int, String>>()
         queue.add(Triple(rootId, 0, ""))
@@ -202,7 +215,11 @@ class MediaScanner(private val context: Context, private val smb: SmbManager) {
             // 쿼리 실패(권한 해제된 하위 폴더 등)는 건너뛰되, 취소 예외는 그대로 전파한다.
             val cursor = runCatching {
                 resolver.query(childrenUri, DOC_PROJECTION, null, null, null)
-            }.getOrNull() ?: continue
+            }.getOrNull()
+            if (cursor == null) {
+                complete = false
+                continue
+            }
             cursor.use { c ->
                 while (c.moveToNext()) {
                     ctx.ensureActive()
@@ -227,6 +244,7 @@ class MediaScanner(private val context: Context, private val smb: SmbManager) {
                 }
             }
         }
+        return complete
     }
 
     companion object {

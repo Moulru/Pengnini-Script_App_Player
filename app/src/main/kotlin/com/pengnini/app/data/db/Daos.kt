@@ -17,6 +17,13 @@ interface VideoDao {
     @Query("SELECT * FROM videos WHERE folderUri = :folderUri")
     suspend fun getByFolder(folderUri: String): List<VideoEntity>
 
+    /** 다른 등록 폴더의 영상. 같은 파일이 두 폴더에 겹쳐 잡히는지 확인하는 용도. */
+    @Query("SELECT * FROM videos WHERE folderUri != :folderUri")
+    suspend fun getOutsideFolder(folderUri: String): List<VideoEntity>
+
+    @Query("SELECT COUNT(*) FROM videos WHERE funscriptUri = :scriptUri")
+    suspend fun countByFunscript(scriptUri: String): Int
+
     /** 하위 폴더 단위 조회. bucketUri가 없는 구버전 행은 folderUri로 폴백해 잡는다. */
     @Query(
         """
@@ -59,6 +66,9 @@ interface VideoDao {
 
     @Query("DELETE FROM videos WHERE uri = :uri")
     suspend fun delete(uri: String)
+
+    @Query("DELETE FROM videos WHERE uri IN (:uris)")
+    suspend fun deleteAll(uris: List<String>)
 
     /**
       * 라이브러리 기본 순서(추가순 내림차순 → 제목 → uri)에서 바로 앞/뒤 영상.
@@ -125,6 +135,9 @@ interface VideoUserDataDao {
 
     @Query("UPDATE video_user_data SET funscriptUri = :scriptUri WHERE uri = :uri")
     suspend fun updateFunscript(uri: String, scriptUri: String?)
+
+    @Query("SELECT COUNT(*) FROM video_user_data WHERE funscriptUri = :scriptUri")
+    suspend fun countByFunscript(scriptUri: String): Int
 
     @Query("DELETE FROM video_user_data WHERE uri = :uri")
     suspend fun delete(uri: String)
